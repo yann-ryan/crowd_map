@@ -55,8 +55,7 @@
   .cal .reset{color:var(--teal);cursor:pointer;border:none;background:none;font:inherit;font-weight:600;font-size:12.5px}
   .cal .reset[hidden]{display:none}
   #hm{width:100%;display:block}
-  #hm[hidden],#tl[hidden]{display:none}
-  #tl{width:100%;display:block;cursor:crosshair;touch-action:none}
+  #tl{width:100%;display:none;cursor:crosshair;touch-action:none}
   #tl .tl-line{fill:none;stroke:var(--teal);stroke-width:1.5;opacity:.65}
   #tl .tl-pt{fill:var(--c3);opacity:.32}
   #tl .tl-pt.hot{opacity:.6}
@@ -108,6 +107,8 @@
   .xlbtn{border:1px solid var(--line);background:#fff;color:var(--teal-d);font:inherit;font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;cursor:pointer;line-height:1.4}
   .xlbtn:hover{border-color:var(--teal)}
   .xlbtn:disabled{opacity:.5;cursor:default}
+  .art .art-title{display:block;font-weight:700;font-size:13.5px;color:var(--ink);line-height:1.3;margin-bottom:3px;text-decoration:none}
+  .art a.art-title:hover{text-decoration:underline;text-decoration-color:var(--line)}
   .art .snip{display:block;font-size:13.5px;line-height:1.5;text-decoration:none;color:inherit}
   .art a.snip:hover{text-decoration:underline;text-decoration-color:var(--line)}
   .art .snip b{color:#a93a28}
@@ -279,6 +280,27 @@ const monthList = (a,b) => {
   return out;
 };
 
+function setVeil(h,p){ const H=$('veil-h'), P=$('veil-p'); if(H&&h!=null)H.textContent=h; if(P&&p!=null)P.textContent=p; }
+
+// Plain GET of a whole file → Uint8Array, with a percentage in the loading veil.
+async function fetchBuffer(url){
+  const res = await fetch(url, { headers:{ 'Accept':'application/octet-stream' } });
+  if(!res.ok) throw new Error(`HTTP ${res.status} fetching ${url}`);
+  const total = +(res.headers.get('content-length')||0);
+  if(!res.body || !total){ return new Uint8Array(await res.arrayBuffer()); }
+  const reader = res.body.getReader();
+  const chunks = []; let received = 0;
+  for(;;){
+    const { done, value } = await reader.read();
+    if(done) break;
+    chunks.push(value); received += value.length;
+    setVeil(null, `Downloading… ${(received/1e6).toFixed(0)} / ${(total/1e6).toFixed(0)} MB`);
+  }
+  const buf = new Uint8Array(received); let off = 0;
+  for(const c of chunks){ buf.set(c, off); off += c.length; }
+  return buf;
+}
+
 (async function boot(){
   try{
     const bundles = duckdb.getJsDelivrBundles();
@@ -286,17 +308,24 @@ const monthList = (a,b) => {
     const worker  = await duckdb.createWorker(bundle.mainWorker);
     const db      = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-    await db.registerFileURL('articles.parquet', new URL(DATA_URL, window.location.href).toString(),
-      duckdb.DuckDBDataProtocol.HTTP, false);
+
+    // Hugging Face's Xet storage blocks ranged reads via CORS, but plain GET works.
+    // So fetch each Parquet once as a full buffer and register the bytes directly.
+    setVeil('Downloading the data…', 'Fetching the article archive (one-time download).');
+    const articlesBuf = await fetchBuffer(DATA_URL);
+    await db.registerFileBuffer('articles.parquet', articlesBuf);
     conn = await db.connect();
     await conn.query("CREATE VIEW articles AS SELECT * FROM read_parquet('articles.parquet')");
+
     try{
-      await db.registerFileURL('issues_per_month.parquet', new URL(ISSUES_URL, window.location.href).toString(),
-        duckdb.DuckDBDataProtocol.HTTP, false);
+      const issuesBuf = await fetchBuffer(ISSUES_URL);
+      await db.registerFileBuffer('issues_per_month.parquet', issuesBuf);
       await conn.query("CREATE VIEW issues AS SELECT * FROM read_parquet('issues_per_month.parquet')");
       await conn.query("SELECT 1 FROM issues LIMIT 1");
       HAS_ISSUES = true;
     }catch(e){ HAS_ISSUES=false; console.warn('No issue baseline; using proportion fallback.', e); }
+
+    setVeil('Preparing the view…', '');
     await init();
     $('veil').style.display='none';
   }catch(err){
@@ -368,19 +397,47 @@ async function drawMap(){
     SELECT city, any_value(lat) lat, any_value(lon) lon,
            count(*) FILTER (WHERE prob_crowd >= ${S.thr}) AS crowd, count(*) AS total
     FROM articles ${whereClause({thr:false,city:false})}
-    GROUP BY city HAVING crowd > 0 AND any_value(lat) IS NOT NULL
-    ORDER BY crowd DESC`);
+    GROUP BY city HAVING crowd > 0 AND any_value(lat) IS NOT NULL`);
+
+  // per-city issue counts over the selected period (+ publisher filter) for the denominator
+  const issuesByCity = {};
+  if(HAS_ISSUES){
+    const iss = await q(`SELECT city, SUM(issue_count) issues FROM issues ${whereMapIssues()} GROUP BY city`);
+    for(const r of iss) issuesByCity[r.city] = Number(r.issues);
+  }
+
+  const useRate = HAS_ISSUES;
+  const recs = rows.map(r=>{
+    const c=Number(r.crowd), t=Number(r.total), iss=issuesByCity[r.city]||0;
+    return { city:r.city, lat:r.lat, lon:r.lon, crowd:c, total:t, issues:iss,
+             rate: (useRate && iss>0) ? 1000*c/iss : null, share: t?c/t:0 };
+  });
   circles.clearLayers();
-  const maxC = rows.reduce((m,r)=>Math.max(m,Number(r.crowd)),1);
-  for(const r of rows){
-    const c=Number(r.crowd), t=Number(r.total), share=t?c/t:0;
-    const radius=6+26*Math.sqrt(c/maxC);
+  const maxC = recs.reduce((m,r)=>Math.max(m,r.crowd),1);
+  // scale colour to the busiest *well-sampled* city so a tiny-denominator outlier
+  // (e.g. 2 articles over 3 issues) doesn't blow out the whole ramp
+  const MIN_ISS = 12;
+  const maxRate = recs.reduce((m,r)=>(r.rate!=null && r.issues>=MIN_ISS)?Math.max(m,r.rate):m, 0) || 1;
+
+  for(const r of recs){
+    const radius=6+26*Math.sqrt(r.crowd/maxC);
     const sel = S.city===r.city;
+    const metric01 = useRate ? (r.rate!=null ? Math.min(1, r.rate/maxRate) : 0) : r.share;
     const mk = L.circleMarker([r.lat,r.lon],{radius,weight:sel?3:1,color:sel?'#211d17':'#7d2018',
-      fillColor:shareColor(share),fillOpacity:.78}).addTo(circles);
-    mk.bindTooltip(`<b>${r.city}</b><br>${fmt(c)} crowd / ${fmt(t)} articles<br>${(share*100).toFixed(0)}% crowd share`,{direction:'top'});
+      fillColor:shareColor(metric01),fillOpacity:.78}).addTo(circles);
+    const tip = useRate
+      ? `<b>${r.city}</b><br>${fmt(r.crowd)} crowd articles`
+        + (r.issues ? `<br>${r.rate.toFixed(1)} per 1,000 issues<br><span style="opacity:.7">${fmt(r.issues)} issues in view</span>`
+                    : `<br><span style="opacity:.7">no issue baseline for this city</span>`)
+      : `<b>${r.city}</b><br>${fmt(r.crowd)} crowd / ${fmt(r.total)} articles<br>${(r.share*100).toFixed(0)}% crowd share`;
+    mk.bindTooltip(tip,{direction:'top'});
     mk.on('click',()=>{ S.city = sel?'':r.city; S.page=0; syncCityFlag(); refresh(); });
   }
+}
+function whereMapIssues(){
+  const w=[`month BETWEEN '${S.selStart}' AND '${S.selEnd}'`];
+  if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
+  return 'WHERE '+w.join(' AND ');
 }
 function shareColor(s){
   const stops=['--c0','--c1','--c2','--c3','--c4'];
@@ -442,8 +499,9 @@ async function drawList(){
   const total=Number(n); const pages=Math.max(1,Math.ceil(total/PAGE));
   if(S.page>=pages) S.page=pages-1;
   const titleSel = HAS.has('title') ? 'title,' : '';
+  const atSel    = HAS.has('article_title') ? 'article_title,' : '';
   const rows=await q(`
-    SELECT strftime(date,'%Y-%m-%d') d, ${titleSel} city, matched_keyword kw, kwic_snippet snip, prob_crowd p, url
+    SELECT strftime(date,'%Y-%m-%d') d, ${titleSel} ${atSel} city, matched_keyword kw, kwic_snippet snip, prob_crowd p, url
     FROM articles ${where} ORDER BY prob_crowd DESC LIMIT ${PAGE} OFFSET ${S.page*PAGE}`);
   const box=$('rows'); box.innerHTML='';
   if(rows.length===0){
@@ -455,8 +513,10 @@ async function drawList(){
       const wtxt=[r.title,r.city].filter(Boolean).join(' · ');
       const snipText = r.snip || '';
       const url = r.url || '#';
+      const atitle = (r.article_title||'').trim();
       el.innerHTML=`<div class="meta"><span class="date">${r.d??''}</span>${r.kw?`<span class="kw">${r.kw}</span>`:''}
         <button class="xlbtn" type="button">Translate</button><span class="prob">${Number(r.p).toFixed(2)}</span></div>
+        ${atitle?`<a class="art-title" href="${url}" target="_blank" rel="noopener">${escHtml(atitle)}</a>`:''}
         <a class="snip" href="${url}" target="_blank" rel="noopener">${snipHTML(snipText)}</a>
         <div class="snip-en"></div>
         <div class="where">${wtxt}</div>`;
@@ -486,6 +546,7 @@ function prettyMonth(m){ const [y,mo]=m.split('-').map(Number);
   return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mo-1]+' '+y; }
 function snipHTML(s){ if(!s) return '<i style="color:var(--muted)">No snippet</i>';
   return s.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>'); }
+function escHtml(s){ return String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
 
 function calColor(v,max){ const stops=['--c0','--c1','--c2','--c3','--c4'];
   if(v<=0) return '#efe9dc';
@@ -716,8 +777,8 @@ function wireControls(){
     TL.view=v;
     $('tab-cal').setAttribute('aria-selected', v==='cal');
     $('tab-trend').setAttribute('aria-selected', v==='trend');
-    $('hm').hidden = v!=='cal';
-    $('tl').hidden = v!=='trend';
+    $('hm').style.display = v==='cal'   ? 'block' : 'none';
+    $('tl').style.display = v==='trend' ? 'block' : 'none';
     $('cal-legend').style.visibility = v==='cal' ? 'visible' : 'hidden';
     $('zoomctl').hidden = v!=='trend';
     // wait one frame so the just-shown SVG has a real width before drawing
@@ -744,7 +805,8 @@ function addLegend(){
   const lg=L.control({position:'bottomright'});
   lg.onAdd=()=>{ const d=L.DomUtil.create('div','legend');
     const sw=['--c0','--c1','--c2','--c3','--c4'].map(c=>`<span class="sw" style="background:var(${c})"></span>`).join('');
-    d.innerHTML=`<div class="lt">Crowd share</div><div class="scale">${sw}</div><div class="ends"><span>low</span><span>high</span></div><div class="lt" style="margin-top:8px">Circle size = crowd articles</div>`;
+    const label = HAS_ISSUES ? 'Crowd per 1,000 issues' : 'Crowd share';
+    d.innerHTML=`<div class="lt">${label}</div><div class="scale">${sw}</div><div class="ends"><span>low</span><span>high</span></div><div class="lt" style="margin-top:8px">Circle size = crowd articles</div>`;
     return d; };
   lg.addTo(map);
 }
