@@ -240,6 +240,10 @@
         <span>Showing <b id="cityflag-name"></b></span>
         <button id="cityflag-clear">Clear city</button>
       </div>
+      <div class="cityflag" id="newsflag">
+        <span>News from <b id="newsflag-name"></b></span>
+        <button id="newsflag-clear">Clear</button>
+      </div>
       <div class="ctl" style="margin-top:12px">
         <label for="xl-model">Translate snippets with</label>
         <select id="xl-model">
@@ -277,7 +281,7 @@ const TIERS = {
 };
 
 const S = { thr:0.5, mMin:null, mMax:null, selStart:null, selEnd:null,
-            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', scope:'', city:'', page:0, mapMode:'pub' };
+            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', scope:'', city:'', newsPlace:'', page:0, mapMode:'pub' };
 let conn, map, circles;
 let HAS_ISSUES = false;
 let HAS_TITLE_PLACES = false;
@@ -416,6 +420,8 @@ function whereClause(opts={}){
     }
   }
   if(opts.city!==false && S.city) w.push(`city = '${esc(S.city)}'`);
+  if(opts.newsPlace!==false && S.newsPlace && HAS_TITLE_PLACES)
+    w.push(`article_title IN (SELECT article_title FROM title_places WHERE place = '${esc(S.newsPlace)}')`);
   return w.length ? 'WHERE '+w.join(' AND ') : '';
 }
 function whereIssues(){
@@ -438,7 +444,7 @@ async function drawMapNews(){
   const rows = await q(`
     SELECT tp.place place, any_value(tp.lat) lat, any_value(tp.lon) lon, count(*) crowd
     FROM articles a JOIN title_places tp ON a.article_title = tp.article_title
-    ${whereClause()}
+    ${whereClause({newsPlace:false})}
     GROUP BY tp.place HAVING crowd > 0 AND any_value(tp.lat) IS NOT NULL
     ORDER BY crowd DESC`);
   circles.clearLayers();
@@ -446,9 +452,11 @@ async function drawMapNews(){
   for(const r of rows){
     const c=Number(r.crowd);
     const radius=6+26*Math.sqrt(c/maxC);
-    const mk = L.circleMarker([r.lat,r.lon],{radius,weight:1,color:'#245853',
+    const sel = S.newsPlace===r.place;
+    const mk = L.circleMarker([r.lat,r.lon],{radius,weight:sel?3:1,color:sel?'#211d17':'#245853',
       fillColor:shareColor(Math.sqrt(c/maxC)),fillOpacity:.72}).addTo(circles);
     mk.bindTooltip(`<b>${r.place}</b><br>${fmt(c)} crowd articles datelined here`,{direction:'top'});
+    mk.on('click',()=>{ S.newsPlace = sel?'':r.place; S.page=0; syncNewsFlag(); refresh(); });
   }
 }
 
@@ -829,6 +837,7 @@ function wireControls(){
     el.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle();} };
   }
   $('cityflag-clear').onclick=()=>{ S.city=''; S.page=0; syncCityFlag(); refresh(); };
+  $('newsflag-clear').onclick=()=>{ S.newsPlace=''; S.page=0; syncNewsFlag(); refresh(); };
   $('cal-reset').onclick=()=>{ S.selStart=S.mMin; S.selEnd=S.mMax; S.page=0; $('cal-reset').hidden=true;
     TL.vLo=0; TL.vHi=TL.months.length; refresh(); };
   for(const [id,mode] of [['mode-spike','spike'],['mode-rate','rate']]){
@@ -873,6 +882,7 @@ function wireControls(){
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if(map) map.invalidateSize(); if(TL.months.length) renderActiveView(); },150); });
 }
 function syncCityFlag(){ const f=$('cityflag'); if(S.city){ f.classList.add('on'); $('cityflag-name').textContent=S.city; } else f.classList.remove('on'); }
+function syncNewsFlag(){ const f=$('newsflag'); if(S.newsPlace){ f.classList.add('on'); $('newsflag-name').textContent=S.newsPlace; } else f.classList.remove('on'); }
 let legendDiv=null;
 function legendLabel(){
   if(S.mapMode==='news') return 'Crowd articles datelined here';
