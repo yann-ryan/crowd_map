@@ -35,7 +35,11 @@
   /* Layout — flexbox, left (map+calendar) ~2/3, right (controls+reader) ~1/3 */
   .main{flex:1 1 auto;display:flex;min-height:0}
   .left{flex:2 1 0;display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line)}
-  #map{flex:1 1 auto;min-height:220px;background:#e9e3d6}
+  #map{flex:1 1 auto;min-height:220px;background:#e9e3d6;position:relative}
+  .mapmode{position:absolute;top:10px;left:10px;z-index:500;display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;box-shadow:var(--shadow)}
+  .mapmode[hidden]{display:none}
+  .mapmode button{border:none;background:rgba(255,253,249,.95);color:var(--muted);font:inherit;font-size:12px;font-weight:600;padding:5px 11px;cursor:pointer}
+  .mapmode button[aria-pressed="true"]{background:var(--teal);color:#fff}
   .right{flex:1 1 0;min-width:340px;max-width:500px;display:flex;flex-direction:column;min-height:0;background:var(--panel)}
 
   /* Calendar panel (bottom of left column) */
@@ -168,7 +172,12 @@
 
 <div class="main">
   <div class="left">
-    <div id="map"></div>
+    <div id="map">
+      <div class="mapmode" id="mapmode" hidden>
+        <button id="mm-pub"  aria-pressed="true">Where printed</button>
+        <button id="mm-news" aria-pressed="false">In the news</button>
+      </div>
+    </div>
     <div class="cal">
       <div class="thead">
         <div class="vtabs" role="tablist" aria-label="Temporal view">
@@ -258,6 +267,7 @@ import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0
 
 const DATA_URL   = 'https://huggingface.co/datasets/ryanyc-leiden/crowd_map/resolve/main/articles.parquet';
 const ISSUES_URL = 'https://huggingface.co/datasets/ryanyc-leiden/crowd_map/resolve/main/issues_per_month.parquet';
+const TITLE_PLACES_URL = 'https://huggingface.co/datasets/ryanyc-leiden/crowd_map/resolve/main/title_places.parquet';
 const PAGE = 25;
 
 const TIERS = {
@@ -267,9 +277,10 @@ const TIERS = {
 };
 
 const S = { thr:0.5, mMin:null, mMax:null, selStart:null, selEnd:null,
-            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', scope:'', city:'', page:0 };
+            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', scope:'', city:'', page:0, mapMode:'pub' };
 let conn, map, circles;
 let HAS_ISSUES = false;
+let HAS_TITLE_PLACES = false;
 let HAS = new Set();
 let ISCOLS = new Set();   // columns present in the issues baseline
 const TL = { months:[], data:{}, years:[], maxRate:1, maxSpike:1,
@@ -330,6 +341,14 @@ async function fetchBuffer(url){
       HAS_ISSUES = true;
     }catch(e){ HAS_ISSUES=false; console.warn('No issue baseline; using proportion fallback.', e); }
 
+    try{
+      const tpBuf = await fetchBuffer(TITLE_PLACES_URL);
+      await db.registerFileBuffer('title_places.parquet', tpBuf);
+      await conn.query("CREATE VIEW title_places AS SELECT * FROM read_parquet('title_places.parquet')");
+      await conn.query("SELECT 1 FROM title_places LIMIT 1");
+      HAS_TITLE_PLACES = true;
+    }catch(e){ HAS_TITLE_PLACES=false; console.warn('No title_places layer (optional).', e); }
+
     setVeil('Preparing the view…', '');
     await init();
     $('veil').style.display='none';
@@ -370,6 +389,7 @@ async function init(){
     attribution:'© OpenStreetMap, © CARTO'}).addTo(map);
   circles = L.layerGroup().addTo(map);
   addLegend();
+  if(HAS_TITLE_PLACES) $('mapmode').hidden = false;
   setTimeout(()=>map.invalidateSize(), 250);
 
   wireControls();
@@ -409,6 +429,30 @@ function whereIssues(){
 async function refresh(){ await Promise.all([drawMap(), drawTemporal(), drawList()]); }
 
 async function drawMap(){
+  if(S.mapMode==='news' && HAS_TITLE_PLACES) return drawMapNews();
+  return drawMapPub();
+}
+
+async function drawMapNews(){
+  // places mentioned in article titles (datelines), aggregated over current filters
+  const rows = await q(`
+    SELECT tp.place place, any_value(tp.lat) lat, any_value(tp.lon) lon, count(*) crowd
+    FROM articles a JOIN title_places tp ON a.article_title = tp.article_title
+    ${whereClause()}
+    GROUP BY tp.place HAVING crowd > 0 AND any_value(tp.lat) IS NOT NULL
+    ORDER BY crowd DESC`);
+  circles.clearLayers();
+  const maxC = rows.reduce((m,r)=>Math.max(m,Number(r.crowd)),1);
+  for(const r of rows){
+    const c=Number(r.crowd);
+    const radius=6+26*Math.sqrt(c/maxC);
+    const mk = L.circleMarker([r.lat,r.lon],{radius,weight:1,color:'#245853',
+      fillColor:shareColor(Math.sqrt(c/maxC)),fillOpacity:.72}).addTo(circles);
+    mk.bindTooltip(`<b>${r.place}</b><br>${fmt(c)} crowd articles datelined here`,{direction:'top'});
+  }
+}
+
+async function drawMapPub(){
   const rows = await q(`
     SELECT city, any_value(lat) lat, any_value(lon) lon,
            count(*) FILTER (WHERE prob_crowd >= ${S.thr}) AS crowd, count(*) AS total
@@ -806,6 +850,16 @@ function wireControls(){
   $('tab-trend').onclick=()=>setView('trend');
   $('zoom-in').onclick=()=>zoomBy(0.7);
   $('zoom-out').onclick=()=>zoomBy(1.4);
+  // map mode: where printed vs places mentioned in the news
+  for(const [id,mode] of [['mm-pub','pub'],['mm-news','news']]){
+    $(id).onclick=()=>{
+      S.mapMode=mode;
+      $('mm-pub').setAttribute('aria-pressed', mode==='pub');
+      $('mm-news').setAttribute('aria-pressed', mode==='news');
+      refreshLegend();
+      drawMap();
+    };
+  }
   bindTrend();
   $('prev').onclick=()=>{ if(S.page>0){S.page--; drawList();} };
   $('next').onclick=()=>{ S.page++; drawList(); };
@@ -819,13 +873,20 @@ function wireControls(){
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if(map) map.invalidateSize(); if(TL.months.length) renderActiveView(); },150); });
 }
 function syncCityFlag(){ const f=$('cityflag'); if(S.city){ f.classList.add('on'); $('cityflag-name').textContent=S.city; } else f.classList.remove('on'); }
+let legendDiv=null;
+function legendLabel(){
+  if(S.mapMode==='news') return 'Crowd articles datelined here';
+  return HAS_ISSUES ? 'Crowd per 1,000 issues' : 'Crowd share';
+}
+function refreshLegend(){
+  if(!legendDiv) return;
+  const sw=['--c0','--c1','--c2','--c3','--c4'].map(c=>`<span class="sw" style="background:var(${c})"></span>`).join('');
+  const size = S.mapMode==='news' ? 'Circle size = articles' : 'Circle size = crowd articles';
+  legendDiv.innerHTML=`<div class="lt">${legendLabel()}</div><div class="scale">${sw}</div><div class="ends"><span>low</span><span>high</span></div><div class="lt" style="margin-top:8px">${size}</div>`;
+}
 function addLegend(){
   const lg=L.control({position:'bottomright'});
-  lg.onAdd=()=>{ const d=L.DomUtil.create('div','legend');
-    const sw=['--c0','--c1','--c2','--c3','--c4'].map(c=>`<span class="sw" style="background:var(${c})"></span>`).join('');
-    const label = HAS_ISSUES ? 'Crowd per 1,000 issues' : 'Crowd share';
-    d.innerHTML=`<div class="lt">${label}</div><div class="scale">${sw}</div><div class="ends"><span>low</span><span>high</span></div><div class="lt" style="margin-top:8px">Circle size = crowd articles</div>`;
-    return d; };
+  lg.onAdd=()=>{ legendDiv=L.DomUtil.create('div','legend'); refreshLegend(); return legendDiv; };
   lg.addTo(map);
 }
 </script>
