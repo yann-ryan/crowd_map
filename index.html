@@ -6,77 +6,55 @@
 <title>Crowds in the press — Delpher crowd detector</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
   :root{
     --paper:#f3efe6; --panel:#fffdf9; --line:#e0d8c8;
     --ink:#211d17; --muted:#6f6657; --teal:#2f6f6a; --teal-d:#245853;
-    /* sequential intensity: pale sand → historical red (crowd share) */
     --c0:#f0d9bd; --c1:#e3a878; --c2:#cf6f44; --c3:#a93a28; --c4:#7d2018;
     --shadow:0 1px 2px rgba(33,29,23,.06),0 2px 8px rgba(33,29,23,.05);
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
-  body{
-    background:var(--paper); color:var(--ink);
+  body{height:100vh;display:flex;flex-direction:column;overflow:hidden;
+    background:var(--paper);color:var(--ink);
     font:15px/1.45 "Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-    -webkit-font-smoothing:antialiased;
-  }
-  .app{display:grid;grid-template-rows:auto 1fr;height:100%}
+    -webkit-font-smoothing:antialiased;}
 
-  /* ── Masthead ─────────────────────────────────────────── */
-  header.mast{
-    display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
-    padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel);
-  }
+  /* Masthead */
+  header.mast{flex:0 0 auto;display:flex;align-items:baseline;gap:18px;flex-wrap:wrap;
+    padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
   .mast .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--teal);font-weight:600}
-  .mast h1{font-size:20px;font-weight:700;margin:0;letter-spacing:-.01em}
+  .mast h1{font-size:19px;font-weight:700;margin:0;letter-spacing:-.01em}
   .mast .sub{color:var(--muted);font-size:13px}
   .mast .grow{flex:1}
   .stat{font-variant-numeric:tabular-nums;font-weight:600}
   .stat small{color:var(--muted);font-weight:500;letter-spacing:.04em}
 
-  /* ── Layout ───────────────────────────────────────────── */
-  .main{display:grid;grid-template-columns:2fr minmax(340px,1fr);min-height:0}
-  .left{display:grid;grid-template-rows:minmax(220px,1fr) auto;min-height:0;min-width:0;border-right:1px solid var(--line)}
-  #map{width:100%;height:100%;background:#e9e3d6}
-  .right{display:grid;grid-template-rows:min-content minmax(0,1fr);min-height:0;min-width:0}
+  /* Layout — flexbox, left (map+calendar) ~2/3, right (controls+reader) ~1/3 */
+  .main{flex:1 1 auto;display:flex;min-height:0}
+  .left{flex:2 1 0;display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line)}
+  #map{flex:1 1 auto;min-height:220px;background:#e9e3d6}
+  .right{flex:1 1 0;min-width:340px;max-width:500px;display:flex;flex-direction:column;min-height:0;background:var(--panel)}
 
-  /* ── Controls ─────────────────────────────────────────── */
-  .controls{padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel);overflow:auto}
-  .ctl{margin-bottom:12px}
-  .ctl:last-child{margin-bottom:0}
-  .ctl label{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:6px}
-  .row{display:flex;align-items:center;gap:10px}
-  input[type=range]{width:100%;accent-color:var(--teal)}
-  select{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit}
-  .thr-val{font-variant-numeric:tabular-nums;font-weight:700;color:var(--teal-d);min-width:38px;text-align:right}
-  .tiers{display:flex;gap:6px}
-  .chip{
-    flex:1;text-align:center;padding:7px 4px;border:1px solid var(--line);border-radius:7px;
-    background:#fff;cursor:pointer;font-size:12.5px;font-weight:600;user-select:none;color:var(--muted);
-  }
-  .chip[aria-pressed="true"]{background:var(--teal);border-color:var(--teal);color:#fff}
-  .chip:focus-visible{outline:2px solid var(--teal-d);outline-offset:2px}
-  .cityflag{display:none;align-items:center;gap:8px;margin-top:10px;font-size:13px}
-  .cityflag.on{display:flex}
-  .cityflag button{border:none;background:var(--teal);color:#fff;border-radius:6px;padding:3px 8px;cursor:pointer;font:inherit}
-
-  /* ── Heat-calendar (temporal discovery) ───────────────── */
-  .cal{padding:10px 14px 12px;background:var(--panel)}
+  /* Calendar panel (bottom of left column) */
+  .cal{flex:0 0 auto;padding:10px 14px 12px;border-top:1px solid var(--line);background:var(--panel)}
   .cal .thead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
   .cal .thead .lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
-  .cal .thead .tools{display:flex;align-items:center;gap:12px}
+  .cal .thead .tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .cal .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
   .cal .seg button{border:none;background:#fff;color:var(--muted);font:inherit;font-size:12px;font-weight:600;padding:4px 9px;cursor:pointer}
   .cal .seg button[aria-pressed="true"]{background:var(--teal);color:#fff}
   .cal .reset{color:var(--teal);cursor:pointer;border:none;background:none;font:inherit;font-weight:600;font-size:12.5px}
   .cal .reset[hidden]{display:none}
-  #hm{width:100%;display:block;touch-action:none}
+  #hm{width:100%;display:block}
   #hm rect.cell{cursor:pointer}
   #hm rect.cell:hover{stroke:var(--ink);stroke-width:1.4}
   #hm rect.sel{stroke:var(--ink);stroke-width:1.8}
   #hm text{fill:var(--muted);font-size:9.5px}
-  /* spike strip */
+  .callegend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+  .callegend .sw{width:16px;height:9px;display:inline-block}
   .spikes{margin-top:10px}
   .spikes .sh{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:5px}
   .spikes .row{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px}
@@ -86,12 +64,27 @@
   .spk .mo{font-weight:700;font-variant-numeric:tabular-nums;font-size:12.5px}
   .spk .sc{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
   .spk .bar{height:3px;border-radius:2px;margin-top:4px}
-  .callegend{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
-  .callegend .sw{width:16px;height:9px;display:inline-block}
 
-  /* ── Article list ─────────────────────────────────────── */
-  .list{overflow:auto;min-height:0;padding:6px 0}
-  .list .head{display:flex;justify-content:space-between;align-items:center;padding:6px 16px;color:var(--muted);font-size:12.5px}
+  /* Controls */
+  .controls{flex:0 0 auto;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel);overflow:auto;max-height:55%}
+  .ctl{margin-bottom:12px}
+  .ctl:last-child{margin-bottom:0}
+  .ctl label{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:6px}
+  .row{display:flex;align-items:center;gap:10px}
+  input[type=range]{width:100%;accent-color:var(--teal)}
+  select{width:100%;padding:7px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);font:inherit}
+  .thr-val{font-variant-numeric:tabular-nums;font-weight:700;color:var(--teal-d);min-width:38px;text-align:right}
+  .tiers{display:flex;gap:6px}
+  .chip{flex:1;text-align:center;padding:7px 4px;border:1px solid var(--line);border-radius:7px;background:#fff;cursor:pointer;font-size:12.5px;font-weight:600;user-select:none;color:var(--muted)}
+  .chip[aria-pressed="true"]{background:var(--teal);border-color:var(--teal);color:#fff}
+  .chip:focus-visible{outline:2px solid var(--teal-d);outline-offset:2px}
+  .cityflag{display:none;align-items:center;gap:8px;margin-top:10px;font-size:13px}
+  .cityflag.on{display:flex}
+  .cityflag button{border:none;background:var(--teal);color:#fff;border-radius:6px;padding:3px 8px;cursor:pointer;font:inherit}
+
+  /* Article reader */
+  .list{flex:1 1 auto;min-height:0;overflow:auto;padding:6px 0}
+  .list .head{display:flex;justify-content:space-between;align-items:center;padding:6px 16px;color:var(--muted);font-size:12.5px;position:sticky;top:0;background:var(--panel)}
   .art{display:block;padding:11px 16px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit;overflow-wrap:anywhere}
   .art:hover{background:#faf7f0}
   .art:focus-visible{outline:2px solid var(--teal-d);outline-offset:-2px}
@@ -107,16 +100,14 @@
   .pager button:disabled{opacity:.4;cursor:default}
   .empty{padding:40px 20px;text-align:center;color:var(--muted)}
 
-  /* legend */
   .legend{background:rgba(255,253,249,.94);padding:8px 10px;border-radius:8px;box-shadow:var(--shadow);font-size:11.5px;line-height:1.3}
   .legend .lt{font-weight:600;margin-bottom:5px;color:var(--ink)}
-  .legend .scale{display:flex;align-items:center;gap:0}
+  .legend .scale{display:flex}
   .legend .sw{width:20px;height:10px}
   .legend .ends{display:flex;justify-content:space-between;color:var(--muted);margin-top:2px}
 
-  /* loader / error */
   .veil{position:fixed;inset:0;background:var(--paper);display:grid;place-items:center;z-index:9999;text-align:center;padding:20px}
-  .veil .box{max-width:440px}
+  .veil .box{max-width:460px}
   .veil h2{font-size:16px;margin:0 0 8px}
   .veil p{color:var(--muted);margin:6px 0}
   .veil code{background:#eee;padding:2px 6px;border-radius:4px;font-size:13px}
@@ -125,16 +116,16 @@
   @media (prefers-reduced-motion:reduce){.spin{animation:none}}
 
   @media (max-width:880px){
-    .main{grid-template-columns:1fr;grid-auto-rows:minmax(0,auto)}
+    body{overflow:auto}
+    .main{flex-direction:column}
     .left{border-right:none;border-bottom:1px solid var(--line)}
-    #map{height:46vh}
+    #map{min-height:300px;height:46vh}
+    .right{max-width:none;min-width:0}
+    .controls{max-height:none}
   }
 </style>
 </head>
 <body>
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-        crossorigin=""></script>
 <div class="veil" id="veil">
   <div class="box">
     <div class="spin" id="spin"></div>
@@ -143,79 +134,77 @@
   </div>
 </div>
 
-<div class="app" aria-hidden="false">
-  <header class="mast">
-    <div>
-      <div class="eyebrow">Delpher · computational history</div>
-      <h1>Crowds in the press</h1>
-    </div>
-    <div class="sub">Articles a fine-tuned model reads as describing a crowd, 19th-century Dutch newspapers.</div>
-    <div class="grow"></div>
-    <div class="stat"><span id="stat-crowd">—</span> <small>shown</small></div>
-    <div class="stat"><span id="stat-total">—</span> <small>filtered</small></div>
-  </header>
+<header class="mast">
+  <div>
+    <div class="eyebrow">Delpher · computational history</div>
+    <h1>Crowds in the press</h1>
+  </div>
+  <div class="sub">Articles a fine-tuned model reads as describing a crowd, 19th-century Dutch newspapers.</div>
+  <div class="grow"></div>
+  <div class="stat"><span id="stat-crowd">—</span> <small>shown</small></div>
+  <div class="stat"><span id="stat-total">—</span> <small>filtered</small></div>
+</header>
 
-  <div class="main">
-    <div class="left">
-      <div id="map"></div>
-      <div class="cal">
-        <div class="thead">
-          <span class="lbl" id="cal-label">Crowd intensity by month — click a cell to read that month</span>
-          <div class="tools">
-            <span class="callegend"><span id="legend-sw"></span><span id="legend-ends">low · high</span></span>
-            <div class="seg" role="group" aria-label="Colour cells by">
-              <button id="mode-spike" aria-pressed="true">Spikes</button>
-              <button id="mode-rate"  aria-pressed="false">Rate</button>
-            </div>
-            <button class="reset" id="cal-reset" hidden>Show all</button>
+<div class="main">
+  <div class="left">
+    <div id="map"></div>
+    <div class="cal">
+      <div class="thead">
+        <span class="lbl" id="cal-label">Crowd intensity by month — click a cell to read that month</span>
+        <div class="tools">
+          <span class="callegend"><span id="legend-sw"></span><span id="legend-ends">low · high</span></span>
+          <div class="seg" role="group" aria-label="Colour cells by">
+            <button id="mode-spike" aria-pressed="true">Spikes</button>
+            <button id="mode-rate"  aria-pressed="false">Rate</button>
           </div>
+          <button class="reset" id="cal-reset" hidden>Show all</button>
         </div>
-        <svg id="hm" role="img" aria-label="Heat calendar of crowd intensity by month and year"></svg>
-        <div class="spikes">
-          <div class="sh">Biggest spikes — click to jump in</div>
-          <div class="row" id="spikes"></div>
+      </div>
+      <svg id="hm" role="img" aria-label="Heat calendar of crowd intensity by month and year"></svg>
+      <div class="spikes">
+        <div class="sh">Biggest spikes — click to jump in</div>
+        <div class="row" id="spikes"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="controls">
+      <div class="ctl">
+        <label for="thr">Minimum model confidence</label>
+        <div class="row">
+          <input type="range" id="thr" min="0" max="0.99" step="0.01" value="0.5">
+          <span class="thr-val" id="thr-val">0.50</span>
         </div>
+      </div>
+      <div class="ctl">
+        <label>Keyword precision tier</label>
+        <div class="tiers" role="group" aria-label="Keyword precision tier">
+          <span class="chip" id="t-high" role="button" tabindex="0" aria-pressed="true">High</span>
+          <span class="chip" id="t-med"  role="button" tabindex="0" aria-pressed="true">Medium</span>
+          <span class="chip" id="t-low"  role="button" tabindex="0" aria-pressed="true">Low</span>
+        </div>
+      </div>
+      <div class="ctl">
+        <label for="kw">Matched keyword</label>
+        <select id="kw"><option value="">All keywords</option></select>
+      </div>
+      <div class="ctl">
+        <label for="pub">Newspaper</label>
+        <select id="pub"><option value="">All newspapers</option></select>
+      </div>
+      <div class="cityflag" id="cityflag">
+        <span>Showing <b id="cityflag-name"></b></span>
+        <button id="cityflag-clear">Clear city</button>
       </div>
     </div>
 
-    <div class="right">
-      <div class="controls">
-        <div class="ctl">
-          <label for="thr">Minimum model confidence</label>
-          <div class="row">
-            <input type="range" id="thr" min="0" max="0.99" step="0.01" value="0.5">
-            <span class="thr-val" id="thr-val">0.50</span>
-          </div>
-        </div>
-        <div class="ctl">
-          <label>Keyword precision tier</label>
-          <div class="tiers" role="group" aria-label="Keyword precision tier">
-            <span class="chip" id="t-high"  role="button" tabindex="0" aria-pressed="true">High</span>
-            <span class="chip" id="t-med"   role="button" tabindex="0" aria-pressed="true">Medium</span>
-            <span class="chip" id="t-low"   role="button" tabindex="0" aria-pressed="true">Low</span>
-          </div>
-        </div>
-        <div class="ctl">
-          <label for="kw">Matched keyword</label>
-          <select id="kw"><option value="">All keywords</option></select>
-        </div>
-        <div class="ctl">
-          <label for="pub">Newspaper</label>
-          <select id="pub"><option value="">All newspapers</option></select>
-        </div>
-        <div class="cityflag" id="cityflag">
-          <span>Showing <b id="cityflag-name"></b></span>
-          <button id="cityflag-clear">Clear city</button>
-        </div>
-      </div>
-
-      <div class="list" id="list">
-        <div class="head"><span id="list-count">—</span><span id="range-label">All months</span></div>
-        <div id="rows"></div>
-        <div class="pager">
-          <button id="prev" disabled>← Newer page</button>
-          <button id="next" disabled>Older / more →</button>
-        </div>
+    <div class="list" id="list">
+      <div class="head"><span id="list-count">—</span><span id="range-label">All months</span></div>
+      <div id="rows"></div>
+      <div class="pager">
+        <button id="prev" disabled>← Newer page</button>
+        <button id="next" disabled>Older / more →</button>
       </div>
     </div>
   </div>
@@ -224,41 +213,33 @@
 <script type="module">
 import * as duckdb from 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/+esm';
 
-// ── Config ──────────────────────────────────────────────────────────────
 const DATA_URL   = 'https://huggingface.co/datasets/ryanyc-leiden/crowd_map/resolve/main/articles.parquet';
 const ISSUES_URL = 'https://huggingface.co/datasets/ryanyc-leiden/crowd_map/resolve/main/issues_per_month.parquet';
 const PAGE = 25;
 
-// Keyword precision tiers — mirrors the three sections of 07_inference.py.
-// Used only to expand the High/Medium/Low toggles into keyword sets client-side.
 const TIERS = {
   high: new Set(['menigte','menigten','menigtem','volksmenigte','volksmenigten','mensenmenigte','aanwezige menigte','bijeen gedromde menigte','mensenmassa','menschenmassa','volksmassa','massa','publieke massa','toekijkende massa','mensenlint','mensenkluwen','mensenstroom','volkschaar','volkshoop','volksgroep','volksstoet','gepeupel','meute','horde','muiters','oproerlingen','relschoppers','opstokers','oploop','oploopen','oplooppen','opstand','oproer','samenscholing','samenscholingen','samenrotting','samengerot','tumult','bestorming','bestorm','bestormd','bestormde','bestormden','bestormen','bestormend','bestormt','optocht','optochten','optochtgangers','betoging','betogingen','betogen','betogend','betoogd','betoogde','betoogden','betoogt','betoog','protest','protesteren','protesterend','protesteerde','protesteer','protesteert','protesteerden','geprotesteerd','protestmars','solidariteitsbetoging','demonstranten','demonstratie','demonstreer','demonstreerde','demonstreerden','demonstreert','demonstreren','demonstrerend','gedemonstreerd','mars','marsen','staking','staak','staakt','staakte','staakten','staken','stakend','stakers','gestaakt','actiegroep','actievoerders','actievoeren','actievoerend','actie gevoerd','voer actie','voerde actie','voerden actie','voert actie','processie','processiegangers','opeenhoping','opeenhopend','opeengehoopt','opdringen','opdringend','opdringers','opdringing','opgedrongen','samengedromd','samengekomen','samengeschoold','samengeklonterd','opgelopen','liep op','liepen op','loop op','loopt op']),
   med: new Set(['vergadering','vergaderingen','volksvergadering','volksvergaderingen','vergader','vergaderd','vergaderde','vergaderden','vergaderen','vergaderend','vergadert','bijeenkomst','bijeenkomsten','bijeenkomst van burgers','bijeengekomen','bijeenkomen','bijeenkomend','samenkomst','samenkomen','samenkomend','kom bijeen','kom samen','komt bijeen','komt samen','kwamen bijeen','kwamen samen','kwam bijeen','kwam samen','drom','drommen','dromde','dromden','dromt','drommend','gedromd','drom samen','dromde samen','dromden samen','dromt samen','drom volk','schare','scharen','schaar','schaarde','schaarden','schaart','geschaard','scharend','schare volk','toeschouwers','aanwezigen','omstanders','toeloop','belangstellenden','samenscholen','samenscholend','samendrommen','samendrommend','samendromming','samenklonteren','samenklonterend','samenklontering','samenrotten','samenrottend','school samen','schoolde samen','schoolden samen','schoolt samen','klonter samen','klonterde samen','klonterden samen','klontert samen','rot samen','rott samen','rotte samen','rotten samen','oplopen','oplopend','dring op','dringt op','drong op','drongen op','stromen','stromend','stroom','stroomde','stroomden','stroomt','gestroomd','verzamel','verzameld','verzamelde','verzamelden','verzamelen','verzamelend','verzameling','verzamelt','groep','groepen','groepeer','groepeerde','groepeerden','groepeert','groeperen','groeperend','gegroepeerd','omring','omringd','omringde','omringden','omringen','omringend','omringenden','omringt','toehoorders','toehoren','toehorend','toegehoord','toekijken','toekijkend','toegekeken','hoor toe','hoorde toe','hoorden toe','hoort toe','kijk toe','keek toe','keken toe','kijkt toe','kijk','kijken','kijkend','kijkers','kijkt','keek','keken','gekeken','voorbijgangers','voorbijgaan','voorbijgaand','voorbijgegaan','ga voorbij','gaat voorbij','ging voorbij','gingen voorbij','jubel','jubelend','jubelende','jubelde','jubelden','jubelen','jubelt','gejubeld','juich','juichen','juichend','juicht','juichte','juichten','gejuicht','kreten','scandeer','scandeert','scanderen','scanderend','scandeerde','scandeerden','gescandeerd','carnaval','carnavals','kermis','kermissen','jaarmarkt','jaarmarkten','festiviteit','festiviteiten','publiek','gezelschap','ontmoet','ontmoeten','ontmoetend','ontmoeting','ontmoette','ontmoetten']),
   low: new Set(['mannen','vrouwen','kinderen','burgers','burger','arbeiders','arbeider','bevolking','bevolk','bevolken','bevolkend','bevolkt','bevolkte','bevolkten','gemeenschap','gemeenschappen','honderden','duizenden','menigeen','vereenigde','vereenigd','vereenigden','verenig','verenigd','verenigde','verenigden','verenigen','verenigend','verenigt','kluit','cluster','clusters','hoop opeen','hoop volk','hoopt opeen','hoopte opeen','hoopten opeen','troep','troepje','troepsgewijs','rapaille','tuig','gespuis','straatschooiers','bende']),
 };
 
-// ── State ───────────────────────────────────────────────────────────────
 const S = { thr:0.5, mMin:null, mMax:null, selStart:null, selEnd:null,
             tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', city:'', page:0 };
 let conn, map, circles;
-let HAS_ISSUES = false;          // monthly issue baseline available?
-let HAS = new Set();             // available article columns
-// Cached temporal data for the heat-calendar + spike list
+let HAS_ISSUES = false;
+let HAS = new Set();
 const TL = { months:[], data:{}, years:[], maxRate:1, maxSpike:1,
              unit:'', fmt:v=>v, denomLabel:'issues', mode:'spike' };
 
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('en-US');
-const esc = s => String(s).replace(/'/g, "''");          // SQL string escape
-
-// month helpers
-const monthList = (a,b) => {           // 'YYYY-MM' inclusive
+const esc = s => String(s).replace(/'/g, "''");
+const monthList = (a,b) => {
   const out=[]; let [y,m]=a.split('-').map(Number); const [Y,M]=b.split('-').map(Number);
   while(y<Y || (y===Y && m<=M)){ out.push(`${y}-${String(m).padStart(2,'0')}`); m++; if(m>12){m=1;y++;} }
   return out;
 };
 
-// ── Boot ────────────────────────────────────────────────────────────────
 (async function boot(){
   try{
     const bundles = duckdb.getJsDelivrBundles();
@@ -266,76 +247,64 @@ const monthList = (a,b) => {           // 'YYYY-MM' inclusive
     const worker  = await duckdb.createWorker(bundle.mainWorker);
     const db      = new duckdb.AsyncDuckDB(new duckdb.ConsoleLogger(), worker);
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
-    await db.registerFileURL('articles.parquet',
-      new URL(DATA_URL, window.location.href).toString(),
+    await db.registerFileURL('articles.parquet', new URL(DATA_URL, window.location.href).toString(),
       duckdb.DuckDBDataProtocol.HTTP, false);
     conn = await db.connect();
     await conn.query("CREATE VIEW articles AS SELECT * FROM read_parquet('articles.parquet')");
-    // Optional monthly issue baseline — degrade gracefully if absent
     try{
-      await db.registerFileURL('issues_per_month.parquet',
-        new URL(ISSUES_URL, window.location.href).toString(),
+      await db.registerFileURL('issues_per_month.parquet', new URL(ISSUES_URL, window.location.href).toString(),
         duckdb.DuckDBDataProtocol.HTTP, false);
       await conn.query("CREATE VIEW issues AS SELECT * FROM read_parquet('issues_per_month.parquet')");
-      await conn.query("SELECT 1 FROM issues LIMIT 1");   // force-resolve the fetch
+      await conn.query("SELECT 1 FROM issues LIMIT 1");
       HAS_ISSUES = true;
-    }catch(e){ HAS_ISSUES = false; console.warn('No issue baseline; using proportion fallback.', e); }
+    }catch(e){ HAS_ISSUES=false; console.warn('No issue baseline; using proportion fallback.', e); }
     await init();
-    $('veil').style.display = 'none';
+    $('veil').style.display='none';
   }catch(err){
     console.error(err);
     $('spin').style.display='none';
-    $('veil-h').textContent = 'Could not load the data';
-    $('veil-p').innerHTML =
-      `The app needs <code>${DATA_URL}</code> and must be served over http, not opened as a file.<br><br>` +
-      `From the dashboard folder run <code>python -m http.server</code> then open ` +
-      `<code>http://localhost:8000</code>.<br><br><small>${String(err)}</small>`;
+    $('veil-h').textContent='Could not load the data';
+    $('veil-p').innerHTML=`The app expects the Parquet files at the configured URLs and must be served over https.<br><br><small>${String(err)}</small>`;
   }
 })();
 
 async function q(sql){ const r = await conn.query(sql); return r.toArray().map(x=>x.toJSON()); }
 
 async function init(){
-  // available article columns (so e.g. missing 'title' degrades gracefully)
   const desc = await q("DESCRIBE articles");
-  HAS = new Set(desc.map(r => r.column_name));
+  HAS = new Set(desc.map(r=>r.column_name));
 
-  // month bounds from the data
-  const [b] = await q(
-    "SELECT min(strftime(date,'%Y-%m')) a, max(strftime(date,'%Y-%m')) b FROM articles WHERE date IS NOT NULL");
-  S.mMin = S.selStart = b.a;
-  S.mMax = S.selEnd   = b.b;
+  const [b] = await q("SELECT min(strftime(date,'%Y-%m')) a, max(strftime(date,'%Y-%m')) b FROM articles WHERE date IS NOT NULL");
+  S.mMin = S.selStart = b.a; S.mMax = S.selEnd = b.b;
   TL.months = monthList(S.mMin, S.mMax);
 
-  // populate keyword + publisher selects
   const kws = await q("SELECT DISTINCT matched_keyword k FROM articles WHERE matched_keyword<>'' ORDER BY 1");
   for(const r of kws){ const o=document.createElement('option'); o.value=o.textContent=r.k; $('kw').appendChild(o); }
   const pubs = await q("SELECT publisher p, count(*) n FROM articles WHERE publisher IS NOT NULL GROUP BY 1 ORDER BY n DESC");
   for(const r of pubs){ const o=document.createElement('option'); o.value=r.p; o.textContent=`${r.p} (${fmt(r.n)})`; $('pub').appendChild(o); }
 
-  // map
-  map = L.map('map',{zoomControl:true,attributionControl:true}).setView([52.2,5.3],7);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-    maxZoom:18, attribution:'© OpenStreetMap, © CARTO'}).addTo(map);
+  map = L.map('map',{zoomControl:true}).setView([52.2,5.3],7);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:18,
+    attribution:'© OpenStreetMap, © CARTO'}).addTo(map);
   circles = L.layerGroup().addTo(map);
   addLegend();
+  setTimeout(()=>map.invalidateSize(), 250);
 
   wireControls();
   await refresh();
+  map.invalidateSize();
 }
 
-// ── Filter SQL shared by the article-level queries ──────────────────────
 function whereClause(opts={}){
-  const w = [];
-  if(opts.month!==false)
-    w.push(`strftime(date,'%Y-%m') BETWEEN '${S.selStart}' AND '${S.selEnd}'`);
+  const w=[];
+  if(opts.month!==false) w.push(`strftime(date,'%Y-%m') BETWEEN '${S.selStart}' AND '${S.selEnd}'`);
   if(opts.thr!==false) w.push(`prob_crowd >= ${S.thr}`);
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
-  if(S.keyword)   w.push(`matched_keyword = '${esc(S.keyword)}'`);
+  if(S.keyword) w.push(`matched_keyword = '${esc(S.keyword)}'`);
   else {
     const allOn = S.tiers.high && S.tiers.med && S.tiers.low;
     if(!allOn){
-      const set = [];
+      const set=[];
       if(S.tiers.high) set.push(...TIERS.high);
       if(S.tiers.med)  set.push(...TIERS.med);
       if(S.tiers.low)  set.push(...TIERS.low);
@@ -344,191 +313,126 @@ function whereClause(opts={}){
     }
   }
   if(opts.city!==false && S.city) w.push(`city = '${esc(S.city)}'`);
-  return w.length ? 'WHERE ' + w.join(' AND ') : '';
+  return w.length ? 'WHERE '+w.join(' AND ') : '';
 }
-
-// Structural-only filter for the issue baseline (no date/keyword/threshold cols)
 function whereIssues(){
-  const w = [];
+  const w=[];
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
-  if(S.city)      w.push(`city = '${esc(S.city)}'`);
-  return w.length ? 'WHERE ' + w.join(' AND ') : '';
+  if(S.city) w.push(`city = '${esc(S.city)}'`);
+  return w.length ? 'WHERE '+w.join(' AND ') : '';
 }
 
-// ── Refresh everything ──────────────────────────────────────────────────
-async function refresh(){
-  await Promise.all([drawMap(), drawTemporal(), drawList()]);
-}
+async function refresh(){ await Promise.all([drawMap(), drawTemporal(), drawList()]); }
 
 async function drawMap(){
-  // city filter does NOT constrain the map (the map is how you pick a city)
   const rows = await q(`
     SELECT city, any_value(lat) lat, any_value(lon) lon,
-           count(*) FILTER (WHERE prob_crowd >= ${S.thr}) AS crowd,
-           count(*) AS total
+           count(*) FILTER (WHERE prob_crowd >= ${S.thr}) AS crowd, count(*) AS total
     FROM articles ${whereClause({thr:false,city:false})}
     GROUP BY city HAVING crowd > 0 AND any_value(lat) IS NOT NULL
     ORDER BY crowd DESC`);
   circles.clearLayers();
   const maxC = rows.reduce((m,r)=>Math.max(m,Number(r.crowd)),1);
   for(const r of rows){
-    const c = Number(r.crowd), t = Number(r.total), share = t? c/t : 0;
-    const radius = 6 + 26*Math.sqrt(c/maxC);
-    const sel = S.city === r.city;
-    const m = L.circleMarker([r.lat,r.lon],{
-      radius, weight: sel?3:1, color: sel?'#211d17':'#7d2018',
-      fillColor: shareColor(share), fillOpacity:.78
-    }).addTo(circles);
-    m.bindTooltip(
-      `<b>${r.city}</b><br>${fmt(c)} crowd / ${fmt(t)} articles<br>${(share*100).toFixed(0)}% crowd share`,
-      {direction:'top'});
-    m.on('click',()=>{ S.city = sel? '' : r.city; S.page=0; syncCityFlag(); refresh(); });
+    const c=Number(r.crowd), t=Number(r.total), share=t?c/t:0;
+    const radius=6+26*Math.sqrt(c/maxC);
+    const sel = S.city===r.city;
+    const mk = L.circleMarker([r.lat,r.lon],{radius,weight:sel?3:1,color:sel?'#211d17':'#7d2018',
+      fillColor:shareColor(share),fillOpacity:.78}).addTo(circles);
+    mk.bindTooltip(`<b>${r.city}</b><br>${fmt(c)} crowd / ${fmt(t)} articles<br>${(share*100).toFixed(0)}% crowd share`,{direction:'top'});
+    mk.on('click',()=>{ S.city = sel?'':r.city; S.page=0; syncCityFlag(); refresh(); });
   }
 }
-
 function shareColor(s){
   const stops=['--c0','--c1','--c2','--c3','--c4'];
-  const i=Math.min(stops.length-1, Math.floor(s*stops.length));
+  const i=Math.min(stops.length-1,Math.floor(s*stops.length));
   return getComputedStyle(document.documentElement).getPropertyValue(stops[i]).trim();
 }
 
 async function drawTemporal(){
-  // The timeline spans ALL months (it IS the range selector) but respects the
-  // other filters. y = crowd articles per 1,000 issues (or, without a baseline,
-  // the % of candidate articles flagged).
   let rows;
   if(HAS_ISSUES){
     rows = await q(`
-      WITH iss AS (
-        SELECT month, SUM(issue_count) AS issues
-        FROM issues ${whereIssues()} GROUP BY month
-      ),
-      crd AS (
-        SELECT strftime(date,'%Y-%m') AS month, COUNT(*) AS crowd
-        FROM articles ${whereClause({month:false})} GROUP BY 1
-      )
+      WITH iss AS (SELECT month, SUM(issue_count) AS issues FROM issues ${whereIssues()} GROUP BY month),
+           crd AS (SELECT strftime(date,'%Y-%m') AS month, COUNT(*) AS crowd FROM articles ${whereClause({month:false})} GROUP BY 1)
       SELECT iss.month AS month, COALESCE(crd.crowd,0) AS crowd, iss.issues AS denom
       FROM iss LEFT JOIN crd USING(month) ORDER BY iss.month`);
-    TL.unit = 'crowd articles per 1,000 issues';
-    TL.denomLabel = 'issues';
-    TL.fmt = v => v.toFixed(1);
+    TL.unit='crowd articles per 1,000 issues'; TL.denomLabel='issues'; TL.fmt=v=>v.toFixed(1);
     for(const r of rows) r.rate = Number(r.denom) ? 1000*Number(r.crowd)/Number(r.denom) : 0;
   } else {
     rows = await q(`
       SELECT strftime(date,'%Y-%m') AS month,
-             COUNT(*) FILTER (WHERE prob_crowd >= ${S.thr}) AS crowd,
-             COUNT(*) AS denom
+             COUNT(*) FILTER (WHERE prob_crowd >= ${S.thr}) AS crowd, COUNT(*) AS denom
       FROM articles ${whereClause({month:false,thr:false})} GROUP BY 1 ORDER BY 1`);
-    TL.unit = '% of candidate articles flagged';
-    TL.denomLabel = 'candidates';
-    TL.fmt = v => v.toFixed(0) + '%';
+    TL.unit='% of candidate articles flagged'; TL.denomLabel='candidates'; TL.fmt=v=>v.toFixed(0)+'%';
     for(const r of rows) r.rate = Number(r.denom) ? 100*Number(r.crowd)/Number(r.denom) : 0;
   }
-  TL.data = Object.fromEntries(rows.map(r => [r.month,
-    {crowd:Number(r.crowd), denom:Number(r.denom), rate:r.rate}]));
-  TL.maxRate = Math.max(0.0001, ...rows.map(r => r.rate));
-
-  computeSpikes();          // fills TL.data[m].spike + TL.maxSpike + ranked list
+  TL.data = Object.fromEntries(rows.map(r=>[r.month,{crowd:Number(r.crowd),denom:Number(r.denom),rate:r.rate}]));
+  TL.maxRate = Math.max(0.0001, ...rows.map(r=>r.rate));
+  computeSpikes();
   renderCalendar();
   renderSpikes();
 }
 
-// Spike score: rate relative to a robust local baseline (centred rolling
-// median over ±SPAN months). Months far above their neighbourhood score high,
-// so an unusual month surfaces even inside a generally quiet decade.
-const SPAN = 12;        // half-window in months
-const MIN_CROWD = 3;    // ignore tiny-count flukes when ranking spikes
+const SPAN=12, MIN_CROWD=3;
 function computeSpikes(){
-  const ms = TL.months;
-  const rates = ms.map(m => (TL.data[m]?.rate) || 0);
-  const globalMed = median(rates.filter(v=>v>0)) || 0;
-  const eps = globalMed*0.4 + 1e-6;            // damp tiny baselines
-  TL.maxSpike = 1;
+  const ms=TL.months;
+  const rates=ms.map(m=>(TL.data[m]?.rate)||0);
+  const globalMed=median(rates.filter(v=>v>0))||0;
+  const eps=globalMed*0.4+1e-6;
+  TL.maxSpike=1;
   ms.forEach((m,i)=>{
     const lo=Math.max(0,i-SPAN), hi=Math.min(rates.length-1,i+SPAN);
-    const base = median(rates.slice(lo,hi+1));
-    const d = TL.data[m] || {crowd:0,denom:0,rate:0};
-    const score = d.rate>0 ? d.rate/(base+eps) : 0;
-    d.spike = score; if(TL.data[m]) TL.data[m].spike = score;
-    if(score>TL.maxSpike) TL.maxSpike = score;
+    const base=median(rates.slice(lo,hi+1));
+    const d=TL.data[m]||{crowd:0,denom:0,rate:0};
+    const score=d.rate>0 ? d.rate/(base+eps) : 0;
+    if(TL.data[m]) TL.data[m].spike=score;
+    if(score>TL.maxSpike) TL.maxSpike=score;
   });
-  TL.ranked = ms
-    .filter(m => (TL.data[m]?.crowd||0) >= MIN_CROWD)
-    .map(m => ({month:m, ...TL.data[m]}))
-    .sort((a,b)=> b.spike - a.spike)
-    .slice(0,20);
+  TL.ranked=ms.filter(m=>(TL.data[m]?.crowd||0)>=MIN_CROWD)
+    .map(m=>({month:m,...TL.data[m]})).sort((a,b)=>b.spike-a.spike).slice(0,20);
 }
-function median(arr){
-  if(!arr.length) return 0;
-  const a=[...arr].sort((x,y)=>x-y), n=a.length, h=n>>1;
-  return n%2 ? a[h] : (a[h-1]+a[h])/2;
-}
+function median(arr){ if(!arr.length) return 0; const a=[...arr].sort((x,y)=>x-y),n=a.length,h=n>>1; return n%2?a[h]:(a[h-1]+a[h])/2; }
 
 async function drawList(){
-  const where = whereClause();
-  const [{n}] = await q(`SELECT count(*) n FROM articles ${where}`);
-  const total = Number(n);
-  const pages = Math.max(1, Math.ceil(total/PAGE));
-  if(S.page >= pages) S.page = pages-1;
-
+  const where=whereClause();
+  const [{n}]=await q(`SELECT count(*) n FROM articles ${where}`);
+  const total=Number(n); const pages=Math.max(1,Math.ceil(total/PAGE));
+  if(S.page>=pages) S.page=pages-1;
   const titleSel = HAS.has('title') ? 'title,' : '';
-  const rows = await q(`
-    SELECT strftime(date,'%Y-%m-%d') d, ${titleSel} city, matched_keyword kw,
-           kwic_snippet snip, prob_crowd p, url
-    FROM articles ${where}
-    ORDER BY prob_crowd DESC
-    LIMIT ${PAGE} OFFSET ${S.page*PAGE}`);
-
-  const box = $('rows'); box.innerHTML='';
+  const rows=await q(`
+    SELECT strftime(date,'%Y-%m-%d') d, ${titleSel} city, matched_keyword kw, kwic_snippet snip, prob_crowd p, url
+    FROM articles ${where} ORDER BY prob_crowd DESC LIMIT ${PAGE} OFFSET ${S.page*PAGE}`);
+  const box=$('rows'); box.innerHTML='';
   if(rows.length===0){
-    box.innerHTML = `<div class="empty">No articles match these filters.<br>Try lowering the confidence threshold or re-enabling a keyword tier.</div>`;
+    box.innerHTML=`<div class="empty">No articles match these filters.<br>Try lowering the confidence threshold or re-enabling a keyword tier.</div>`;
   } else {
     for(const r of rows){
       const a=document.createElement('a');
       a.className='art'; a.href=r.url||'#'; a.target='_blank'; a.rel='noopener';
-      const where_txt = [r.title, r.city].filter(Boolean).join(' · ');
-      a.innerHTML =
-        `<div class="meta">
-           <span class="date">${r.d??''}</span>
-           ${r.kw?`<span class="kw">${r.kw}</span>`:''}
-           <span class="prob">${Number(r.p).toFixed(2)}</span>
-         </div>
-         <div class="snip">${snipHTML(r.snip)}</div>
-         <div class="where">${where_txt}</div>`;
+      const wtxt=[r.title,r.city].filter(Boolean).join(' · ');
+      a.innerHTML=`<div class="meta"><span class="date">${r.d??''}</span>${r.kw?`<span class="kw">${r.kw}</span>`:''}<span class="prob">${Number(r.p).toFixed(2)}</span></div>
+        <div class="snip">${snipHTML(r.snip)}</div><div class="where">${wtxt}</div>`;
       box.appendChild(a);
     }
   }
-  $('list-count').textContent = `${fmt(total)} article${total===1?'':'s'}`;
-  $('stat-crowd').textContent = fmt(total);
+  $('list-count').textContent=`${fmt(total)} article${total===1?'':'s'}`;
+  $('stat-crowd').textContent=fmt(total);
   const fullSpan = S.selStart===S.mMin && S.selEnd===S.mMax;
-  $('range-label').textContent = fullSpan ? 'All months'
-      : (S.selStart===S.selEnd ? prettyMonth(S.selStart)
-         : `${S.selStart} → ${S.selEnd}`);
-  const [{tn}] = await q(`SELECT count(*) tn FROM articles ${whereClause({thr:false})}`);
-  $('stat-total').textContent = fmt(tn);
-  $('prev').disabled = S.page<=0;
-  $('next').disabled = S.page>=pages-1;
+  $('range-label').textContent = fullSpan ? 'All months' : (S.selStart===S.selEnd ? prettyMonth(S.selStart) : `${S.selStart} → ${S.selEnd}`);
+  const [{tn}]=await q(`SELECT count(*) tn FROM articles ${whereClause({thr:false})}`);
+  $('stat-total').textContent=fmt(tn);
+  $('prev').disabled=S.page<=0; $('next').disabled=S.page>=pages-1;
 }
+function prettyMonth(m){ const [y,mo]=m.split('-').map(Number);
+  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mo-1]+' '+y; }
+function snipHTML(s){ if(!s) return '<i style="color:var(--muted)">No snippet</i>';
+  return s.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>'); }
 
-function prettyMonth(m){
-  const [y,mo]=m.split('-').map(Number);
-  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][mo-1]+' '+y;
-}
-
-function snipHTML(s){
-  if(!s) return '<i style="color:var(--muted)">No snippet</i>';
-  // KWIC stored with **keyword** markers → bold, escape the rest
-  return s.replace(/[<>&]/g, c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))
-          .replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
-}
-
-// ── Heat-calendar rendering ─────────────────────────────────────────────
-function calColor(v, max){                          // pale → red, sequential
-  const stops=['--c0','--c1','--c2','--c3','--c4'];
+function calColor(v,max){ const stops=['--c0','--c1','--c2','--c3','--c4'];
   if(v<=0) return '#efe9dc';
-  const i=Math.min(stops.length-1, Math.floor((v/max)*stops.length));
-  return getComputedStyle(document.documentElement).getPropertyValue(stops[i]).trim();
-}
+  const i=Math.min(stops.length-1,Math.floor((v/max)*stops.length));
+  return getComputedStyle(document.documentElement).getPropertyValue(stops[i]).trim(); }
 function cellValue(d){ return TL.mode==='spike' ? (d.spike||0) : (d.rate||0); }
 function cellMax(){ return TL.mode==='spike' ? TL.maxSpike : TL.maxRate; }
 
@@ -537,47 +441,30 @@ function renderCalendar(){
   const years=[...new Set(TL.months.map(m=>+m.slice(0,4)))].sort((a,b)=>a-b);
   TL.years=years;
   const W=svg.clientWidth||640;
-  const padL=26, padB=14, padT=2;
-  const cw=Math.min(28, (W-padL)/years.length);     // cap so few years don't stretch huge
-  const ch=Math.max(8, Math.min(cw, 16));           // roughly square, but never too tall
+  const padL=26,padB=14,padT=2;
+  const cw=Math.min(28,(W-padL)/Math.max(1,years.length));
+  const ch=Math.max(8,Math.min(cw,16));
   const gridW=cw*years.length;
-  const x0=padL + Math.max(0, (W-padL-gridW)/2);     // centre the grid in the panel
-  const H=padT + ch*12 + padB;
-  svg.setAttribute('height', H);
+  const x0=padL+Math.max(0,(W-padL-gridW)/2);
+  const H=padT+ch*12+padB;
+  svg.setAttribute('height',H);
   const max=cellMax();
   const MON=['J','F','M','A','M','J','J','A','S','O','N','D'];
   let html='';
-  // month row labels
   for(let m=0;m<12;m++) html+=`<text x="2" y="${padT+m*ch+ch*0.75}">${MON[m]}</text>`;
-  // cells
-  years.forEach((y,xi)=>{
-    for(let m=1;m<=12;m++){
-      const key=`${y}-${String(m).padStart(2,'0')}`;
-      const d=TL.data[key]; if(d===undefined) continue;
-      const v=cellValue(d);
-      const sel = key>=S.selStart && key<=S.selEnd && !(S.selStart===S.mMin && S.selEnd===S.mMax);
-      const x=x0+xi*cw, yy=padT+(m-1)*ch;
-      html+=`<rect class="cell${sel?' sel':''}" data-m="${key}" x="${x+0.5}" y="${yy+0.5}" `+
-            `width="${Math.max(1,cw-1)}" height="${Math.max(1,ch-1)}" rx="1.5" fill="${calColor(v,max)}">`+
-            `<title>${key} · ${TL.fmt(d.rate)} (${fmt(d.crowd)} crowd / ${fmt(d.denom)} ${TL.denomLabel})`+
-            `${d.spike?` · ${d.spike.toFixed(1)}× baseline`:''}</title></rect>`;
-    }
-  });
-  // year axis labels (thin out if many)
-  const step = years.length>40 ? 10 : years.length>16 ? 5 : 1;
-  years.forEach((y,xi)=>{
-    if(y%step===0 || xi===0)
-      html+=`<text x="${x0+xi*cw}" y="${H-3}">${y}</text>`;
-  });
+  years.forEach((y,xi)=>{ for(let m=1;m<=12;m++){
+    const key=`${y}-${String(m).padStart(2,'0')}`;
+    const d=TL.data[key]; if(d===undefined) continue;
+    const v=cellValue(d);
+    const sel = key>=S.selStart && key<=S.selEnd && !(S.selStart===S.mMin && S.selEnd===S.mMax);
+    const x=x0+xi*cw, yy=padT+(m-1)*ch;
+    html+=`<rect class="cell${sel?' sel':''}" data-m="${key}" x="${x+0.5}" y="${yy+0.5}" width="${Math.max(1,cw-1)}" height="${Math.max(1,ch-1)}" rx="1.5" fill="${calColor(v,max)}"><title>${key} · ${TL.fmt(d.rate)} (${fmt(d.crowd)} crowd / ${fmt(d.denom)} ${TL.denomLabel})${d.spike?` · ${d.spike.toFixed(1)}× baseline`:''}</title></rect>`;
+  }});
+  const step = years.length>40?10:years.length>16?5:1;
+  years.forEach((y,xi)=>{ if(y%step===0||xi===0) html+=`<text x="${x0+xi*cw}" y="${H-3}">${y}</text>`; });
   svg.innerHTML=html;
-  // delegate clicks
-  svg.onclick=e=>{
-    const r=e.target.closest('rect.cell'); if(!r) return;
-    selectMonth(r.getAttribute('data-m'));
-  };
-  // legend swatches
-  $('legend-sw').innerHTML = ['--c0','--c2','--c4']
-    .map(c=>`<span class="sw" style="background:var(${c})"></span>`).join('');
+  svg.onclick=e=>{ const r=e.target.closest('rect.cell'); if(r) selectMonth(r.getAttribute('data-m')); };
+  $('legend-sw').innerHTML=['--c0','--c2','--c4'].map(c=>`<span class="sw" style="background:var(${c})"></span>`).join('');
   $('cal-label').textContent = TL.mode==='spike'
     ? 'Spike intensity by month — click a cell to read that month'
     : `${TL.unit} by month — click a cell to read that month`;
@@ -585,31 +472,22 @@ function renderCalendar(){
 
 function renderSpikes(){
   const box=$('spikes'); box.innerHTML='';
-  if(!TL.ranked || !TL.ranked.length){ box.innerHTML='<span style="color:var(--muted);font-size:12.5px">No spikes in view.</span>'; return; }
+  if(!TL.ranked||!TL.ranked.length){ box.innerHTML='<span style="color:var(--muted);font-size:12.5px">No spikes in view.</span>'; return; }
   for(const s of TL.ranked){
-    const el=document.createElement('button');
-    el.className='spk'; el.type='button';
-    el.innerHTML=`<span class="mo">${s.month}</span>`+
-                 `<span class="sc">${s.spike.toFixed(1)}× · ${fmt(s.crowd)}</span>`+
-                 `<span class="bar" style="background:${calColor(s.spike,TL.maxSpike)}"></span>`;
+    const el=document.createElement('button'); el.className='spk'; el.type='button';
+    el.innerHTML=`<span class="mo">${s.month}</span><span class="sc">${s.spike.toFixed(1)}× · ${fmt(s.crowd)}</span><span class="bar" style="background:${calColor(s.spike,TL.maxSpike)}"></span>`;
     el.onclick=()=>selectMonth(s.month);
     box.appendChild(el);
   }
 }
 
-function selectMonth(m){
-  S.selStart=m; S.selEnd=m; S.page=0;
-  $('cal-reset').hidden=false;
-  refresh();
-  $('list')?.scrollTo({top:0});
-}
-// ── Controls wiring ─────────────────────────────────────────────────────
+function selectMonth(m){ S.selStart=m; S.selEnd=m; S.page=0; $('cal-reset').hidden=false; refresh(); $('list')?.scrollTo({top:0}); }
+
 function wireControls(){
   $('thr').oninput=e=>{ S.thr=+e.target.value; $('thr-val').textContent=S.thr.toFixed(2); };
   $('thr').onchange=()=>{ S.page=0; refresh(); };
   $('kw').onchange=e=>{ S.keyword=e.target.value; S.page=0; refresh(); };
   $('pub').onchange=e=>{ S.publisher=e.target.value; S.page=0; refresh(); };
-
   for(const [id,key] of [['t-high','high'],['t-med','med'],['t-low','low']]){
     const el=$(id);
     const toggle=()=>{ S.tiers[key]=!S.tiers[key]; el.setAttribute('aria-pressed',S.tiers[key]); S.page=0; refresh(); };
@@ -619,35 +497,19 @@ function wireControls(){
   $('cityflag-clear').onclick=()=>{ S.city=''; S.page=0; syncCityFlag(); refresh(); };
   $('cal-reset').onclick=()=>{ S.selStart=S.mMin; S.selEnd=S.mMax; S.page=0; $('cal-reset').hidden=true; refresh(); };
   for(const [id,mode] of [['mode-spike','spike'],['mode-rate','rate']]){
-    $(id).onclick=()=>{
-      TL.mode=mode;
-      $('mode-spike').setAttribute('aria-pressed', mode==='spike');
-      $('mode-rate').setAttribute('aria-pressed', mode==='rate');
-      renderCalendar();
-    };
+    $(id).onclick=()=>{ TL.mode=mode; $('mode-spike').setAttribute('aria-pressed',mode==='spike'); $('mode-rate').setAttribute('aria-pressed',mode==='rate'); renderCalendar(); };
   }
   $('prev').onclick=()=>{ if(S.page>0){S.page--; drawList();} };
   $('next').onclick=()=>{ S.page++; drawList(); };
-  window.addEventListener('resize',()=>{ if(TL.months.length) renderCalendar(); });
+  let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if(map) map.invalidateSize(); if(TL.months.length) renderCalendar(); },150); });
 }
-
-function syncCityFlag(){
-  const f=$('cityflag');
-  if(S.city){ f.classList.add('on'); $('cityflag-name').textContent=S.city; }
-  else f.classList.remove('on');
-}
-
+function syncCityFlag(){ const f=$('cityflag'); if(S.city){ f.classList.add('on'); $('cityflag-name').textContent=S.city; } else f.classList.remove('on'); }
 function addLegend(){
   const lg=L.control({position:'bottomright'});
-  lg.onAdd=()=>{
-    const d=L.DomUtil.create('div','legend');
-    const sw=['--c0','--c1','--c2','--c3','--c4']
-      .map(c=>`<span class="sw" style="background:var(${c})"></span>`).join('');
-    d.innerHTML=`<div class="lt">Crowd share</div><div class="scale">${sw}</div>
-                 <div class="ends"><span>low</span><span>high</span></div>
-                 <div class="lt" style="margin-top:8px">Circle size = crowd articles</div>`;
-    return d;
-  };
+  lg.onAdd=()=>{ const d=L.DomUtil.create('div','legend');
+    const sw=['--c0','--c1','--c2','--c3','--c4'].map(c=>`<span class="sw" style="background:var(${c})"></span>`).join('');
+    d.innerHTML=`<div class="lt">Crowd share</div><div class="scale">${sw}</div><div class="ends"><span>low</span><span>high</span></div><div class="lt" style="margin-top:8px">Circle size = crowd articles</div>`;
+    return d; };
   lg.addTo(map);
 }
 </script>
