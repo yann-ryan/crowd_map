@@ -36,10 +36,10 @@
   .stat small{color:var(--muted);font-weight:500;letter-spacing:.04em}
 
   /* ── Layout ───────────────────────────────────────────── */
-  .main{display:grid;grid-template-columns:1.55fr 1fr;min-height:0}
-  .left{display:grid;grid-template-rows:1fr auto;min-height:0;border-right:1px solid var(--line)}
+  .main{display:grid;grid-template-columns:minmax(0,1fr) clamp(360px,30%,460px);min-height:0}
+  .left{display:grid;grid-template-rows:1fr auto;min-height:0;min-width:0;border-right:1px solid var(--line)}
   #map{width:100%;height:100%;background:#e9e3d6}
-  .right{display:grid;grid-template-rows:auto 1fr;min-height:0}
+  .right{display:grid;grid-template-rows:auto 1fr;min-height:0;min-width:0}
 
   /* ── Controls ─────────────────────────────────────────── */
   .controls{padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
@@ -92,7 +92,7 @@
   /* ── Article list ─────────────────────────────────────── */
   .list{overflow:auto;min-height:0;padding:6px 0}
   .list .head{display:flex;justify-content:space-between;align-items:center;padding:6px 16px;color:var(--muted);font-size:12.5px}
-  .art{display:block;padding:11px 16px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit}
+  .art{display:block;padding:11px 16px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit;overflow-wrap:anywhere}
   .art:hover{background:#faf7f0}
   .art:focus-visible{outline:2px solid var(--teal-d);outline-offset:-2px}
   .art .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:3px}
@@ -132,9 +132,6 @@
 </style>
 </head>
 <body>
-      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-        crossorigin=""></script>
 <div class="veil" id="veil">
   <div class="box">
     <div class="spin" id="spin"></div>
@@ -538,8 +535,10 @@ function renderCalendar(){
   TL.years=years;
   const W=svg.clientWidth||640;
   const padL=26, padB=14, padT=2;
-  const cw=(W-padL)/years.length;
-  const ch=Math.max(8, Math.min(16, cw));           // keep cells from getting too tall
+  const cw=Math.min(28, (W-padL)/years.length);     // cap so few years don't stretch huge
+  const ch=Math.max(8, Math.min(cw, 16));           // roughly square, but never too tall
+  const gridW=cw*years.length;
+  const x0=padL + Math.max(0, (W-padL-gridW)/2);     // centre the grid in the panel
   const H=padT + ch*12 + padB;
   svg.setAttribute('height', H);
   const max=cellMax();
@@ -554,7 +553,7 @@ function renderCalendar(){
       const d=TL.data[key]; if(d===undefined) continue;
       const v=cellValue(d);
       const sel = key>=S.selStart && key<=S.selEnd && !(S.selStart===S.mMin && S.selEnd===S.mMax);
-      const x=padL+xi*cw, yy=padT+(m-1)*ch;
+      const x=x0+xi*cw, yy=padT+(m-1)*ch;
       html+=`<rect class="cell${sel?' sel':''}" data-m="${key}" x="${x+0.5}" y="${yy+0.5}" `+
             `width="${Math.max(1,cw-1)}" height="${Math.max(1,ch-1)}" rx="1.5" fill="${calColor(v,max)}">`+
             `<title>${key} · ${TL.fmt(d.rate)} (${fmt(d.crowd)} crowd / ${fmt(d.denom)} ${TL.denomLabel})`+
@@ -565,7 +564,7 @@ function renderCalendar(){
   const step = years.length>40 ? 10 : years.length>16 ? 5 : 1;
   years.forEach((y,xi)=>{
     if(y%step===0 || xi===0)
-      html+=`<text x="${padL+xi*cw}" y="${H-3}">${y}</text>`;
+      html+=`<text x="${x0+xi*cw}" y="${H-3}">${y}</text>`;
   });
   svg.innerHTML=html;
   // delegate clicks
