@@ -41,14 +41,28 @@
   /* Calendar panel (bottom of left column) */
   .cal{flex:0 0 auto;padding:10px 14px 12px;border-top:1px solid var(--line);background:var(--panel)}
   .cal .thead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap}
-  .cal .thead .lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .cal .vtabs{display:inline-flex;gap:2px}
+  .cal .vtabs button{border:none;background:none;font:inherit;font-size:12.5px;font-weight:600;color:var(--muted);padding:4px 10px;border-radius:7px 7px 0 0;cursor:pointer;border-bottom:2px solid transparent}
+  .cal .vtabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--teal)}
+  .cal .lbl{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:4px}
   .cal .thead .tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .cal .zoomctl{display:inline-flex;gap:2px}
+  .cal .zoomctl[hidden]{display:none}
+  .cal .zoomctl button{border:1px solid var(--line);background:#fff;color:var(--muted);font:inherit;font-weight:700;width:24px;height:24px;border-radius:6px;cursor:pointer;line-height:1}
   .cal .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
   .cal .seg button{border:none;background:#fff;color:var(--muted);font:inherit;font-size:12px;font-weight:600;padding:4px 9px;cursor:pointer}
   .cal .seg button[aria-pressed="true"]{background:var(--teal);color:#fff}
   .cal .reset{color:var(--teal);cursor:pointer;border:none;background:none;font:inherit;font-weight:600;font-size:12.5px}
   .cal .reset[hidden]{display:none}
   #hm{width:100%;display:block}
+  #hm[hidden],#tl[hidden]{display:none}
+  #tl{width:100%;display:block;cursor:crosshair;touch-action:none}
+  #tl .tl-line{fill:none;stroke:var(--teal);stroke-width:1.5;opacity:.65}
+  #tl .tl-pt{fill:var(--c3);opacity:.32}
+  #tl .tl-pt.hot{opacity:.6}
+  #tl .tl-axis{stroke:var(--line)}
+  #tl text{fill:var(--muted);font-size:9.5px}
+  #tl .tl-brush{fill:rgba(47,111,106,.14);stroke:var(--teal);stroke-dasharray:3 2}
   #hm rect.cell{cursor:pointer}
   #hm rect.cell:hover{stroke:var(--ink);stroke-width:1.4}
   #hm rect.sel{stroke:var(--ink);stroke-width:1.8}
@@ -94,6 +108,9 @@
   .art .meta .prob{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
   .art .snip{font-size:13.5px;line-height:1.5}
   .art .snip b{color:#a93a28}
+  .art .snip-en{font-size:13px;line-height:1.45;color:var(--teal-d);margin-top:3px;font-style:italic}
+  .art .snip-en:empty{display:none}
+  .art .snip-en b{font-style:normal;color:#a93a28}
   .art .where{font-size:12px;color:var(--muted);margin-top:3px}
   .pager{display:flex;justify-content:center;gap:10px;padding:12px}
   .pager button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:6px 12px;cursor:pointer;font:inherit}
@@ -150,17 +167,26 @@
     <div id="map"></div>
     <div class="cal">
       <div class="thead">
-        <span class="lbl" id="cal-label">Crowd intensity by month — click a cell to read that month</span>
+        <div class="vtabs" role="tablist" aria-label="Temporal view">
+          <button id="tab-cal"   role="tab" aria-selected="true">Calendar</button>
+          <button id="tab-trend" role="tab" aria-selected="false">Trend</button>
+        </div>
         <div class="tools">
-          <span class="callegend"><span id="legend-sw"></span><span id="legend-ends">low · high</span></span>
-          <div class="seg" role="group" aria-label="Colour cells by">
+          <span class="callegend" id="cal-legend"><span id="legend-sw"></span><span id="legend-ends">low · high</span></span>
+          <span class="zoomctl" id="zoomctl" hidden>
+            <button id="zoom-out" title="Zoom out">−</button>
+            <button id="zoom-in"  title="Zoom in">＋</button>
+          </span>
+          <div class="seg" role="group" aria-label="Value">
             <button id="mode-spike" aria-pressed="true">Spikes</button>
             <button id="mode-rate"  aria-pressed="false">Rate</button>
           </div>
           <button class="reset" id="cal-reset" hidden>Show all</button>
         </div>
       </div>
+      <span class="lbl" id="cal-label">Crowd intensity by month — click a cell to read that month</span>
       <svg id="hm" role="img" aria-label="Heat calendar of crowd intensity by month and year"></svg>
+      <svg id="tl" role="img" aria-label="Crowd intensity trend over time" hidden></svg>
       <div class="spikes">
         <div class="sh">Biggest spikes — click to jump in</div>
         <div class="row" id="spikes"></div>
@@ -197,6 +223,13 @@
         <span>Showing <b id="cityflag-name"></b></span>
         <button id="cityflag-clear">Clear city</button>
       </div>
+      <div class="ctl" style="margin-top:12px">
+        <label>Snippet language</label>
+        <div class="row">
+          <span class="chip" id="xl-toggle" role="button" tabindex="0" aria-pressed="false" style="flex:0 0 auto;padding:7px 12px">Translate to English</span>
+          <span id="xl-status" style="font-size:11.5px;color:var(--muted)"></span>
+        </div>
+      </div>
     </div>
 
     <div class="list" id="list">
@@ -229,7 +262,8 @@ let conn, map, circles;
 let HAS_ISSUES = false;
 let HAS = new Set();
 const TL = { months:[], data:{}, years:[], maxRate:1, maxSpike:1,
-             unit:'', fmt:v=>v, denomLabel:'issues', mode:'spike' };
+             unit:'', fmt:v=>v, denomLabel:'issues', mode:'spike',
+             view:'cal', vLo:0, vHi:0 };
 
 const $ = id => document.getElementById(id);
 const fmt = n => Number(n).toLocaleString('en-US');
@@ -370,9 +404,12 @@ async function drawTemporal(){
   TL.data = Object.fromEntries(rows.map(r=>[r.month,{crowd:Number(r.crowd),denom:Number(r.denom),rate:r.rate}]));
   TL.maxRate = Math.max(0.0001, ...rows.map(r=>r.rate));
   computeSpikes();
-  renderCalendar();
+  if(TL.vHi===0){ TL.vLo=0; TL.vHi=TL.months.length; }   // first time: full zoom
+  renderActiveView();
   renderSpikes();
 }
+
+function renderActiveView(){ if(TL.view==='trend') renderTrend(); else renderCalendar(); }
 
 const SPAN=12, MIN_CROWD=3;
 function computeSpikes(){
@@ -411,10 +448,14 @@ async function drawList(){
       const a=document.createElement('a');
       a.className='art'; a.href=r.url||'#'; a.target='_blank'; a.rel='noopener';
       const wtxt=[r.title,r.city].filter(Boolean).join(' · ');
+      const snipText = r.snip || '';
       a.innerHTML=`<div class="meta"><span class="date">${r.d??''}</span>${r.kw?`<span class="kw">${r.kw}</span>`:''}<span class="prob">${Number(r.p).toFixed(2)}</span></div>
-        <div class="snip">${snipHTML(r.snip)}</div><div class="where">${wtxt}</div>`;
+        <div class="snip">${snipHTML(snipText)}</div>
+        <div class="snip-en" data-src="${encodeURIComponent(snipText)}"></div>
+        <div class="where">${wtxt}</div>`;
       box.appendChild(a);
     }
+    if(XL.on) translateVisible();
   }
   $('list-count').textContent=`${fmt(total)} article${total===1?'':'s'}`;
   $('stat-crowd').textContent=fmt(total);
@@ -482,6 +523,165 @@ function renderSpikes(){
 }
 
 function selectMonth(m){ S.selStart=m; S.selEnd=m; S.page=0; $('cal-reset').hidden=false; refresh(); $('list')?.scrollTo({top:0}); }
+function selectRange(a,b){
+  const lo=Math.min(a,b), hi=Math.max(a,b);
+  S.selStart=TL.months[lo]; S.selEnd=TL.months[hi]; S.page=0;
+  $('cal-reset').hidden=false; refresh(); $('list')?.scrollTo({top:0});
+}
+
+// ── Trend view (zoomable line + transparent points, brushable) ──────────
+const TLG = {};   // cached geometry for hit-testing
+function renderTrend(){
+  const svg=$('tl');
+  const W=svg.clientWidth||640, H=150, padL=30, padR=8, padT=8, padB=16;
+  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const n=TL.months.length;
+  const lo=Math.max(0,TL.vLo), hi=Math.min(n,TL.vHi||n);
+  const span=Math.max(1,hi-lo);
+  const max=cellMax();
+  const xOf=i=>padL+((i+0.5)-lo)/span*plotW;
+  const yOf=v=>padT+(1-Math.min(1,v/max))*plotH;
+  TLG.padL=padL; TLG.plotW=plotW; TLG.lo=lo; TLG.span=span; TLG.n=n;
+  svg.setAttribute('height',H);
+
+  let pts='', dots='';
+  TL.months.forEach((mo,i)=>{
+    if(i+0.5 < lo-0.5 || i+0.5 > hi+0.5) return;
+    const d=TL.data[mo]; if(!d) return;
+    const v=cellValue(d);
+    const x=xOf(i), y=yOf(v);
+    pts += `${x.toFixed(1)},${y.toFixed(1)} `;
+    const hot = d.spike && d.spike>=2;
+    dots += `<circle class="tl-pt${hot?' hot':''}" cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${hot?3:2.4}"><title>${mo} · ${TL.fmt(d.rate)} (${fmt(d.crowd)} crowd / ${fmt(d.denom)} ${TL.denomLabel})${d.spike?` · ${d.spike.toFixed(1)}× baseline`:''}</title></circle>`;
+  });
+  // baseline axis
+  let html=`<line class="tl-axis" x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}"/>`;
+  // year ticks
+  const firstYear=+TL.months[Math.floor(lo)].slice(0,4), lastYear=+TL.months[Math.min(n-1,Math.ceil(hi)-1)].slice(0,4);
+  const yspan=lastYear-firstYear, ystep=yspan>60?20:yspan>25?10:yspan>10?5:1;
+  TL.months.forEach((mo,i)=>{
+    if(!mo.endsWith('-01')) return;
+    const y=+mo.slice(0,4); if(y%ystep) return;
+    if(i+0.5<lo || i+0.5>hi) return;
+    const x=xOf(i);
+    html+=`<line class="tl-axis" x1="${x}" y1="${padT}" x2="${x}" y2="${padT+plotH}" opacity="0.35"/><text x="${x}" y="${H-4}" text-anchor="middle">${y}</text>`;
+  });
+  html+=`<polyline class="tl-line" points="${pts.trim()}"/>${dots}`;
+  // brush band for current selection (if a sub-range is chosen)
+  const si=TL.months.indexOf(S.selStart), ei=TL.months.indexOf(S.selEnd);
+  if(!(S.selStart===S.mMin && S.selEnd===S.mMax) && si>=0 && ei>=0){
+    const bx=xOf(si)-((0.5)/span*plotW), bx2=xOf(ei)+((0.5)/span*plotW);
+    html+=`<rect class="tl-brush" x="${Math.max(padL,bx).toFixed(1)}" y="${padT}" width="${Math.max(2,Math.min(W-padR,bx2)-Math.max(padL,bx)).toFixed(1)}" height="${plotH}"/>`;
+  }
+  svg.innerHTML=html;
+  $('cal-label').textContent = `${TL.mode==='spike'?'Spike intensity':TL.unit} over time — drag to select a range, scroll to zoom`;
+}
+
+// index (float) under a clientX on the trend svg
+function trendIndexAt(clientX){
+  const r=$('tl').getBoundingClientRect();
+  const px=clientX-r.left;
+  const frac=(px-TLG.padL)/TLG.plotW;
+  return Math.min(TLG.n-1, Math.max(0, Math.round(TLG.lo + frac*TLG.span - 0.5)));
+}
+let tlDrag=null;
+function bindTrend(){
+  const svg=$('tl');
+  svg.addEventListener('pointerdown',e=>{ if(TL.view!=='trend')return; tlDrag=trendIndexAt(e.clientX); svg.setPointerCapture(e.pointerId); });
+  svg.addEventListener('pointermove',e=>{
+    if(tlDrag==null)return;
+    const cur=trendIndexAt(e.clientX);
+    // live band preview
+    S.selStart=TL.months[Math.min(tlDrag,cur)]; S.selEnd=TL.months[Math.max(tlDrag,cur)];
+    renderTrend();
+  });
+  const end=e=>{ if(tlDrag==null)return; const cur=trendIndexAt(e.clientX); const a=tlDrag; tlDrag=null; selectRange(a,cur); };
+  svg.addEventListener('pointerup',end);
+  svg.addEventListener('pointercancel',()=>{tlDrag=null;});
+  svg.addEventListener('wheel',e=>{
+    if(TL.view!=='trend')return; e.preventDefault();
+    const n=TL.months.length; const cur=trendIndexAt(e.clientX);
+    if(e.shiftKey){                         // shift-scroll = pan
+      const shift=(e.deltaY>0?1:-1)*Math.max(1,Math.round(TLG.span*0.12));
+      let lo=TL.vLo+shift, hi=TL.vHi+shift;
+      if(lo<0){hi-=lo;lo=0;} if(hi>n){lo-=hi-n;hi=n;} lo=Math.max(0,lo);
+      TL.vLo=lo; TL.vHi=hi;
+    } else {                                // scroll = zoom toward cursor
+      const factor=e.deltaY>0?1.18:0.85;
+      const newSpan=Math.min(n, Math.max(3, TLG.span*factor));
+      const frac=(cur+0.5-TLG.lo)/TLG.span;
+      let lo=cur+0.5-frac*newSpan, hi=lo+newSpan;
+      if(lo<0){hi-=lo;lo=0;} if(hi>n){lo-=hi-n;hi=n;} lo=Math.max(0,lo);
+      TL.vLo=lo; TL.vHi=hi;
+    }
+    renderTrend();
+  }, {passive:false});
+}
+function zoomBy(factor){
+  const n=TL.months.length, c=(TL.vLo+TL.vHi)/2;
+  const newSpan=Math.min(n, Math.max(3, (TL.vHi-TL.vLo)*factor));
+  let lo=c-newSpan/2, hi=c+newSpan/2;
+  if(lo<0){hi-=lo;lo=0;} if(hi>n){lo-=hi-n;hi=n;} lo=Math.max(0,lo);
+  TL.vLo=lo; TL.vHi=hi; renderTrend();
+}
+
+// ── Local Dutch→English translation (transformers.js, runs in-browser) ──
+const XL = { on:false, pipe:null, loading:false, cache:new Map() };
+
+async function loadTranslator(){
+  if(XL.pipe || XL.loading) return XL.pipe;
+  XL.loading = true;
+  setXlStatus('loading model (~40 MB, first time only)…');
+  try{
+    const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0');
+    env.allowLocalModels = false;          // fetch from the HF hub / CDN
+    XL.pipe = await pipeline('translation', 'Xenova/opus-mt-nl-en', {
+      progress_callback: p => { if(p.status==='progress' && p.total)
+        setXlStatus(`downloading model… ${Math.round(100*p.loaded/p.total)}%`); }
+    });
+    setXlStatus('');
+    return XL.pipe;
+  }catch(err){
+    console.error('translator load failed', err);
+    setXlStatus('translation unavailable in this browser');
+    XL.on=false; $('xl-toggle').setAttribute('aria-pressed','false');
+    return null;
+  }finally{ XL.loading=false; }
+}
+
+function setXlStatus(t){ const el=$('xl-status'); if(el) el.textContent=t; }
+
+// Translate a plain-text snippet (markers stripped), with caching.
+async function translateText(src){
+  const clean = src.replace(/\*\*/g,'').replace(/\s+/g,' ').trim();
+  if(!clean) return '';
+  if(XL.cache.has(clean)) return XL.cache.get(clean);
+  const pipe = await loadTranslator(); if(!pipe) return '';
+  try{
+    const out = await pipe(clean);
+    const txt = Array.isArray(out) ? (out[0]?.translation_text||'') : (out.translation_text||'');
+    XL.cache.set(clean, txt);
+    return txt;
+  }catch(err){ console.error('translate failed', err); return ''; }
+}
+
+// Translate every snippet currently shown in the reader, sequentially.
+async function translateVisible(){
+  if(!XL.on) return;
+  const nodes = [...document.querySelectorAll('.snip-en')];
+  if(nodes.length && !XL.pipe && !XL.loading) await loadTranslator();
+  let done=0;
+  for(const node of nodes){
+    if(!XL.on) break;                         // toggled off mid-run
+    if(node.dataset.done){ done++; continue; }
+    const src = decodeURIComponent(node.dataset.src||'');
+    const en = await translateText(src);
+    if(en){ node.textContent = en; node.dataset.done='1'; }
+    done++;
+    setXlStatus(done<nodes.length ? `translating… ${done}/${nodes.length}` : '');
+  }
+  if(XL.on) setXlStatus('');
+}
 
 function wireControls(){
   $('thr').oninput=e=>{ S.thr=+e.target.value; $('thr-val').textContent=S.thr.toFixed(2); };
@@ -495,13 +695,39 @@ function wireControls(){
     el.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle();} };
   }
   $('cityflag-clear').onclick=()=>{ S.city=''; S.page=0; syncCityFlag(); refresh(); };
-  $('cal-reset').onclick=()=>{ S.selStart=S.mMin; S.selEnd=S.mMax; S.page=0; $('cal-reset').hidden=true; refresh(); };
+  $('cal-reset').onclick=()=>{ S.selStart=S.mMin; S.selEnd=S.mMax; S.page=0; $('cal-reset').hidden=true;
+    TL.vLo=0; TL.vHi=TL.months.length; refresh(); };
   for(const [id,mode] of [['mode-spike','spike'],['mode-rate','rate']]){
-    $(id).onclick=()=>{ TL.mode=mode; $('mode-spike').setAttribute('aria-pressed',mode==='spike'); $('mode-rate').setAttribute('aria-pressed',mode==='rate'); renderCalendar(); };
+    $(id).onclick=()=>{ TL.mode=mode; $('mode-spike').setAttribute('aria-pressed',mode==='spike'); $('mode-rate').setAttribute('aria-pressed',mode==='rate'); renderActiveView(); };
   }
+  // view tabs
+  function setView(v){
+    TL.view=v;
+    $('tab-cal').setAttribute('aria-selected', v==='cal');
+    $('tab-trend').setAttribute('aria-selected', v==='trend');
+    $('hm').hidden = v!=='cal';
+    $('tl').hidden = v!=='trend';
+    $('cal-legend').style.visibility = v==='cal' ? 'visible' : 'hidden';
+    $('zoomctl').hidden = v!=='trend';
+    renderActiveView();
+  }
+  $('tab-cal').onclick=()=>setView('cal');
+  $('tab-trend').onclick=()=>setView('trend');
+  $('zoom-in').onclick=()=>zoomBy(0.7);
+  $('zoom-out').onclick=()=>zoomBy(1.4);
+  bindTrend();
   $('prev').onclick=()=>{ if(S.page>0){S.page--; drawList();} };
   $('next').onclick=()=>{ S.page++; drawList(); };
-  let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if(map) map.invalidateSize(); if(TL.months.length) renderCalendar(); },150); });
+  // translation toggle
+  const xl=$('xl-toggle');
+  const xlToggle=()=>{
+    XL.on=!XL.on; xl.setAttribute('aria-pressed', XL.on);
+    if(XL.on){ translateVisible(); }
+    else { setXlStatus(''); document.querySelectorAll('.snip-en').forEach(n=>{ n.textContent=''; delete n.dataset.done; }); }
+  };
+  xl.onclick=xlToggle;
+  xl.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();xlToggle();} };
+  let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if(map) map.invalidateSize(); if(TL.months.length) renderActiveView(); },150); });
 }
 function syncCityFlag(){ const f=$('cityflag'); if(S.city){ f.classList.add('on'); $('cityflag-name').textContent=S.city; } else f.classList.remove('on'); }
 function addLegend(){
