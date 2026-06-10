@@ -65,7 +65,7 @@
   #tl .tl-pt.hot{opacity:.6}
   #tl .tl-axis{stroke:var(--line)}
   #tl text{fill:var(--muted);font-size:9.5px}
-  #tl .tl-brush{fill:rgba(47,111,106,.14);stroke:var(--teal);stroke-dasharray:3 2}
+  #tl .tl-brush{fill:rgba(47,111,106,.14);stroke:var(--teal);stroke-dasharray:3 2;cursor:grab}
   #hm rect.cell{cursor:pointer}
   #hm rect.cell:hover{stroke:var(--ink);stroke-width:1.4}
   #hm rect.sel{stroke:var(--ink);stroke-width:1.8}
@@ -721,7 +721,9 @@ function renderTrend(){
     html+=`<rect class="tl-brush" x="${Math.max(padL,bx).toFixed(1)}" y="${padT}" width="${Math.max(2,Math.min(W-padR,bx2)-Math.max(padL,bx)).toFixed(1)}" height="${plotH}"/>`;
   }
   svg.innerHTML=html;
-  $('cal-label').textContent = `${TL.mode==='spike'?'Spike intensity':TL.unit} over time — drag to select a range, scroll to zoom`;
+  const hint = hasSelection() ? 'drag the box to move it, scroll to zoom, drag the chart to pan'
+                             : 'drag to select a range, scroll to zoom';
+  $('cal-label').textContent = `${TL.mode==='spike'?'Spike intensity':TL.unit} over time — ${hint}`;
 }
 
 // index (float) under a clientX on the trend svg
@@ -731,20 +733,61 @@ function trendIndexAt(clientX){
   const frac=(px-TLG.padL)/TLG.plotW;
   return Math.min(TLG.n-1, Math.max(0, Math.round(TLG.lo + frac*TLG.span - 0.5)));
 }
+function hasSelection(){ return !(S.selStart===S.mMin && S.selEnd===S.mMax); }
+function pxToMonths(dx){ return dx/Math.max(1,TLG.plotW)*TLG.span; }
+
 let tlDrag=null;
 function bindTrend(){
   const svg=$('tl');
-  svg.addEventListener('pointerdown',e=>{ if(TL.view!=='trend')return; tlDrag=trendIndexAt(e.clientX); svg.setPointerCapture(e.pointerId); });
-  svg.addEventListener('pointermove',e=>{
-    if(tlDrag==null)return;
-    const cur=trendIndexAt(e.clientX);
-    // live band preview
-    S.selStart=TL.months[Math.min(tlDrag,cur)]; S.selEnd=TL.months[Math.max(tlDrag,cur)];
-    renderTrend();
+  svg.addEventListener('pointerdown',e=>{
+    if(TL.view!=='trend')return;
+    const n=TL.months.length;
+    const onBand = !!e.target.closest('.tl-brush') && hasSelection();
+    const zoomed = (TL.vHi-TL.vLo) < n-0.5;
+    const mode = onBand ? 'move' : (zoomed ? 'pan' : 'brush');
+    tlDrag = { mode, x0:e.clientX, idx0:trendIndexAt(e.clientX), moved:false,
+               vLo:TL.vLo, vHi:TL.vHi,
+               si:TL.months.indexOf(S.selStart), ei:TL.months.indexOf(S.selEnd) };
+    svg.setPointerCapture(e.pointerId);
+    svg.style.cursor = (mode==='brush') ? 'crosshair' : 'grabbing';
   });
-  const end=e=>{ if(tlDrag==null)return; const cur=trendIndexAt(e.clientX); const a=tlDrag; tlDrag=null; selectRange(a,cur); };
+  svg.addEventListener('pointermove',e=>{
+    if(!tlDrag)return;
+    if(Math.abs(e.clientX-tlDrag.x0)>3) tlDrag.moved=true;
+    const n=TL.months.length;
+    if(tlDrag.mode==='brush'){
+      const cur=trendIndexAt(e.clientX);
+      S.selStart=TL.months[Math.min(tlDrag.idx0,cur)]; S.selEnd=TL.months[Math.max(tlDrag.idx0,cur)];
+      renderTrend();
+    } else if(tlDrag.mode==='pan'){
+      const span=tlDrag.vHi-tlDrag.vLo;
+      const dM = (e.clientX-tlDrag.x0)/Math.max(1,TLG.plotW)*span;   // grab-and-slide
+      let lo=tlDrag.vLo-dM, hi=tlDrag.vHi-dM;
+      if(lo<0){lo=0;hi=span;} if(hi>n){hi=n;lo=n-span;}
+      TL.vLo=lo; TL.vHi=hi; renderTrend();
+    } else {  // move the whole selection, preserving its width
+      const span=tlDrag.vHi-tlDrag.vLo, width=tlDrag.ei-tlDrag.si;
+      const dM=Math.round((e.clientX-tlDrag.x0)/Math.max(1,TLG.plotW)*span);
+      let si=tlDrag.si+dM, ei=tlDrag.ei+dM;
+      if(si<0){si=0;ei=width;} if(ei>n-1){ei=n-1;si=n-1-width;}
+      S.selStart=TL.months[si]; S.selEnd=TL.months[ei];
+      renderTrend();
+    }
+  });
+  const end=e=>{
+    if(!tlDrag)return;
+    const d=tlDrag; tlDrag=null; svg.style.cursor='';
+    if(!d.moved){                         // a click (no drag) selects that single month
+      if(d.mode!=='move') selectMonth(TL.months[d.idx0]);
+      return;
+    }
+    if(d.mode==='brush' || d.mode==='move'){
+      S.page=0; $('cal-reset').hidden=false; refresh(); $('list')?.scrollTo({top:0});
+    }
+    // pan: view already updated, selection unchanged → no data refresh needed
+  };
   svg.addEventListener('pointerup',end);
-  svg.addEventListener('pointercancel',()=>{tlDrag=null;});
+  svg.addEventListener('pointercancel',()=>{tlDrag=null; svg.style.cursor='';});
   svg.addEventListener('wheel',e=>{
     if(TL.view!=='trend')return; e.preventDefault();
     const n=TL.months.length; const cur=trendIndexAt(e.clientX);
