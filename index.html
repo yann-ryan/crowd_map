@@ -229,6 +229,11 @@
           <span class="chip" id="xl-toggle" role="button" tabindex="0" aria-pressed="false" style="flex:0 0 auto;padding:7px 12px">Translate to English</span>
           <span id="xl-status" style="font-size:11.5px;color:var(--muted)"></span>
         </div>
+        <select id="xl-model" style="margin-top:8px">
+          <option value="opus">OPUS-MT — fast, small (~40 MB)</option>
+          <option value="m2m">M2M-100 418M — better, slower (~250 MB)</option>
+          <option value="nllb">NLLB-200 600M — best, slowest (~430 MB)</option>
+        </select>
       </div>
     </div>
 
@@ -533,12 +538,12 @@ function selectRange(a,b){
 const TLG = {};   // cached geometry for hit-testing
 function renderTrend(){
   const svg=$('tl');
-  const W=svg.clientWidth||640, H=150, padL=30, padR=8, padT=8, padB=16;
-  const plotW=W-padL-padR, plotH=H-padT-padB;
+  const W=svg.clientWidth || svg.parentElement?.clientWidth || 640, H=150, padL=30, padR=8, padT=8, padB=16;
+  const plotW=Math.max(40, W-padL-padR), plotH=H-padT-padB;
   const n=TL.months.length;
   const lo=Math.max(0,TL.vLo), hi=Math.min(n,TL.vHi||n);
   const span=Math.max(1,hi-lo);
-  const max=cellMax();
+  const max=Math.max(1e-6, cellMax());
   const xOf=i=>padL+((i+0.5)-lo)/span*plotW;
   const yOf=v=>padT+(1-Math.min(1,v/max))*plotH;
   TLG.padL=padL; TLG.plotW=plotW; TLG.lo=lo; TLG.span=span; TLG.n=n;
@@ -626,16 +631,21 @@ function zoomBy(factor){
 }
 
 // ── Local Dutch→English translation (transformers.js, runs in-browser) ──
-const XL = { on:false, pipe:null, loading:false, cache:new Map() };
+const XL_MODELS = {
+  opus: { id:'Xenova/opus-mt-nl-en',            args:null },
+  m2m:  { id:'Xenova/m2m100_418M',              args:{ src_lang:'nl',       tgt_lang:'en' } },
+  nllb: { id:'Xenova/nllb-200-distilled-600M',  args:{ src_lang:'nld_Latn', tgt_lang:'eng_Latn' } },
+};
+const XL = { on:false, model:'opus', pipe:null, loading:false, cache:new Map() };
 
 async function loadTranslator(){
   if(XL.pipe || XL.loading) return XL.pipe;
   XL.loading = true;
-  setXlStatus('loading model (~40 MB, first time only)…');
+  setXlStatus('loading model (first time only)…');
   try{
     const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.0');
-    env.allowLocalModels = false;          // fetch from the HF hub / CDN
-    XL.pipe = await pipeline('translation', 'Xenova/opus-mt-nl-en', {
+    env.allowLocalModels = false;
+    XL.pipe = await pipeline('translation', XL_MODELS[XL.model].id, {
       progress_callback: p => { if(p.status==='progress' && p.total)
         setXlStatus(`downloading model… ${Math.round(100*p.loaded/p.total)}%`); }
     });
@@ -651,36 +661,39 @@ async function loadTranslator(){
 
 function setXlStatus(t){ const el=$('xl-status'); if(el) el.textContent=t; }
 
-// Translate a plain-text snippet (markers stripped), with caching.
 async function translateText(src){
   const clean = src.replace(/\*\*/g,'').replace(/\s+/g,' ').trim();
   if(!clean) return '';
-  if(XL.cache.has(clean)) return XL.cache.get(clean);
+  const key = XL.model + '\n' + clean;            // cache per model
+  if(XL.cache.has(key)) return XL.cache.get(key);
   const pipe = await loadTranslator(); if(!pipe) return '';
   try{
-    const out = await pipe(clean);
+    const args = XL_MODELS[XL.model].args;
+    const out = args ? await pipe(clean, args) : await pipe(clean);
     const txt = Array.isArray(out) ? (out[0]?.translation_text||'') : (out.translation_text||'');
-    XL.cache.set(clean, txt);
+    XL.cache.set(key, txt);
     return txt;
   }catch(err){ console.error('translate failed', err); return ''; }
 }
 
-// Translate every snippet currently shown in the reader, sequentially.
 async function translateVisible(){
   if(!XL.on) return;
   const nodes = [...document.querySelectorAll('.snip-en')];
   if(nodes.length && !XL.pipe && !XL.loading) await loadTranslator();
   let done=0;
   for(const node of nodes){
-    if(!XL.on) break;                         // toggled off mid-run
+    if(!XL.on) break;
     if(node.dataset.done){ done++; continue; }
-    const src = decodeURIComponent(node.dataset.src||'');
-    const en = await translateText(src);
+    const en = await translateText(decodeURIComponent(node.dataset.src||''));
     if(en){ node.textContent = en; node.dataset.done='1'; }
     done++;
     setXlStatus(done<nodes.length ? `translating… ${done}/${nodes.length}` : '');
   }
   if(XL.on) setXlStatus('');
+}
+
+function resetTranslations(){
+  document.querySelectorAll('.snip-en').forEach(n=>{ n.textContent=''; delete n.dataset.done; });
 }
 
 function wireControls(){
@@ -709,7 +722,8 @@ function wireControls(){
     $('tl').hidden = v!=='trend';
     $('cal-legend').style.visibility = v==='cal' ? 'visible' : 'hidden';
     $('zoomctl').hidden = v!=='trend';
-    renderActiveView();
+    // wait one frame so the just-shown SVG has a real width before drawing
+    requestAnimationFrame(()=>requestAnimationFrame(renderActiveView));
   }
   $('tab-cal').onclick=()=>setView('cal');
   $('tab-trend').onclick=()=>setView('trend');
@@ -718,15 +732,21 @@ function wireControls(){
   bindTrend();
   $('prev').onclick=()=>{ if(S.page>0){S.page--; drawList();} };
   $('next').onclick=()=>{ S.page++; drawList(); };
-  // translation toggle
+  // translation toggle + model picker
   const xl=$('xl-toggle');
   const xlToggle=()=>{
     XL.on=!XL.on; xl.setAttribute('aria-pressed', XL.on);
     if(XL.on){ translateVisible(); }
-    else { setXlStatus(''); document.querySelectorAll('.snip-en').forEach(n=>{ n.textContent=''; delete n.dataset.done; }); }
+    else { setXlStatus(''); resetTranslations(); }
   };
   xl.onclick=xlToggle;
   xl.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();xlToggle();} };
+  $('xl-model').onchange=e=>{
+    XL.model=e.target.value;
+    XL.pipe=null;            // force reload of the new model on next use
+    resetTranslations();     // clear old translations; they'll re-run if toggle on
+    if(XL.on) translateVisible();
+  };
   let rt; window.addEventListener('resize',()=>{ clearTimeout(rt); rt=setTimeout(()=>{ if(map) map.invalidateSize(); if(TL.months.length) renderActiveView(); },150); });
 }
 function syncCityFlag(){ const f=$('cityflag'); if(S.city){ f.classList.add('on'); $('cityflag-name').textContent=S.city; } else f.classList.remove('on'); }
