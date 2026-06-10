@@ -223,6 +223,10 @@
         <label for="pub">Newspaper</label>
         <select id="pub"><option value="">All newspapers</option></select>
       </div>
+      <div class="ctl" id="scope-ctl">
+        <label for="scope">Publication scope</label>
+        <select id="scope"><option value="">All scopes</option></select>
+      </div>
       <div class="cityflag" id="cityflag">
         <span>Showing <b id="cityflag-name"></b></span>
         <button id="cityflag-clear">Clear city</button>
@@ -263,10 +267,11 @@ const TIERS = {
 };
 
 const S = { thr:0.5, mMin:null, mMax:null, selStart:null, selEnd:null,
-            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', city:'', page:0 };
+            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', scope:'', city:'', page:0 };
 let conn, map, circles;
 let HAS_ISSUES = false;
 let HAS = new Set();
+let ISCOLS = new Set();   // columns present in the issues baseline
 const TL = { months:[], data:{}, years:[], maxRate:1, maxSpike:1,
              unit:'', fmt:v=>v, denomLabel:'issues', mode:'spike',
              view:'cal', vLo:0, vHi:0 };
@@ -341,6 +346,9 @@ async function q(sql){ const r = await conn.query(sql); return r.toArray().map(x
 async function init(){
   const desc = await q("DESCRIBE articles");
   HAS = new Set(desc.map(r=>r.column_name));
+  if(HAS_ISSUES){
+    try{ ISCOLS = new Set((await q("DESCRIBE issues")).map(r=>r.column_name)); }catch(e){ ISCOLS = new Set(); }
+  }
 
   const [b] = await q("SELECT min(strftime(date,'%Y-%m')) a, max(strftime(date,'%Y-%m')) b FROM articles WHERE date IS NOT NULL");
   S.mMin = S.selStart = b.a; S.mMax = S.selEnd = b.b;
@@ -350,6 +358,12 @@ async function init(){
   for(const r of kws){ const o=document.createElement('option'); o.value=o.textContent=r.k; $('kw').appendChild(o); }
   const pubs = await q("SELECT publisher p, count(*) n FROM articles WHERE publisher IS NOT NULL GROUP BY 1 ORDER BY n DESC");
   for(const r of pubs){ const o=document.createElement('option'); o.value=r.p; o.textContent=`${r.p} (${fmt(r.n)})`; $('pub').appendChild(o); }
+  if(HAS.has('scope')){
+    const scopes = await q("SELECT scope s, count(*) n FROM articles WHERE scope IS NOT NULL AND scope<>'' GROUP BY 1 ORDER BY n DESC");
+    for(const r of scopes){ const o=document.createElement('option'); o.value=r.s; o.textContent=`${r.s} (${fmt(r.n)})`; $('scope').appendChild(o); }
+  } else {
+    $('scope-ctl').style.display='none';   // old parquet without scope
+  }
 
   map = L.map('map',{zoomControl:true}).setView([52.2,5.3],7);
   L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:18,
@@ -368,6 +382,7 @@ function whereClause(opts={}){
   if(opts.month!==false) w.push(`strftime(date,'%Y-%m') BETWEEN '${S.selStart}' AND '${S.selEnd}'`);
   if(opts.thr!==false) w.push(`prob_crowd >= ${S.thr}`);
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
+  if(HAS.has('scope') && S.scope) w.push(`scope = '${esc(S.scope)}'`);
   if(S.keyword) w.push(`matched_keyword = '${esc(S.keyword)}'`);
   else {
     const allOn = S.tiers.high && S.tiers.med && S.tiers.low;
@@ -386,6 +401,7 @@ function whereClause(opts={}){
 function whereIssues(){
   const w=[];
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
+  if(ISCOLS.has('scope') && S.scope) w.push(`scope = '${esc(S.scope)}'`);
   if(S.city) w.push(`city = '${esc(S.city)}'`);
   return w.length ? 'WHERE '+w.join(' AND ') : '';
 }
@@ -437,6 +453,7 @@ async function drawMap(){
 function whereMapIssues(){
   const w=[`month BETWEEN '${S.selStart}' AND '${S.selEnd}'`];
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
+  if(ISCOLS.has('scope') && S.scope) w.push(`scope = '${esc(S.scope)}'`);
   return 'WHERE '+w.join(' AND ');
 }
 function shareColor(s){
@@ -760,6 +777,7 @@ function wireControls(){
   $('thr').onchange=()=>{ S.page=0; refresh(); };
   $('kw').onchange=e=>{ S.keyword=e.target.value; S.page=0; refresh(); };
   $('pub').onchange=e=>{ S.publisher=e.target.value; S.page=0; refresh(); };
+  $('scope').onchange=e=>{ S.scope=e.target.value; S.page=0; refresh(); };
   for(const [id,key] of [['t-high','high'],['t-med','med'],['t-low','low']]){
     const el=$(id);
     const toggle=()=>{ S.tiers[key]=!S.tiers[key]; el.setAttribute('aria-pressed',S.tiers[key]); S.page=0; refresh(); };
