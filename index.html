@@ -344,7 +344,7 @@ async function drawList(){
   if(S.page >= pages) S.page = pages-1;
 
   const rows = await q(`
-    SELECT strftime(date,'%Y-%m-%d') d, title, city, matched_keyword kw,
+    SELECT strftime(date,'%Y-%m-%d') d, city, matched_keyword kw,
            kwic_snippet snip, prob_crowd p, url
     FROM articles ${where}
     ORDER BY prob_crowd DESC
@@ -364,7 +364,7 @@ async function drawList(){
            <span class="prob">${Number(r.p).toFixed(2)}</span>
          </div>
          <div class="snip">${snipHTML(r.snip)}</div>
-         <div class="where">${[r.title,r.city].filter(Boolean).join(' · ')}</div>`;
+         <div class="where">${r.city??''}</div>`;
       box.appendChild(a);
     }
   }
