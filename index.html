@@ -229,8 +229,12 @@
         <select id="kw"><option value="">All keywords</option></select>
       </div>
       <div class="ctl">
-        <label for="pub">Newspaper</label>
-        <select id="pub"><option value="">All newspapers</option></select>
+        <label for="pub">Publisher</label>
+        <select id="pub"><option value="">All publishers</option></select>
+      </div>
+      <div class="ctl" id="paper-ctl">
+        <label for="paper">Newspaper title</label>
+        <select id="paper"><option value="">All newspapers</option></select>
       </div>
       <div class="ctl" id="scope-ctl">
         <label for="scope">Publication scope</label>
@@ -281,7 +285,7 @@ const TIERS = {
 };
 
 const S = { thr:0.5, mMin:null, mMax:null, selStart:null, selEnd:null,
-            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', scope:'', city:'', newsPlace:'', page:0, mapMode:'pub' };
+            tiers:{high:true,med:true,low:true}, keyword:'', publisher:'', paper:'', scope:'', city:'', newsPlace:'', page:0, mapMode:'pub' };
 let conn, map, circles;
 let HAS_ISSUES = false;
 let HAS_TITLE_PLACES = false;
@@ -381,6 +385,12 @@ async function init(){
   for(const r of kws){ const o=document.createElement('option'); o.value=o.textContent=r.k; $('kw').appendChild(o); }
   const pubs = await q("SELECT publisher p, count(*) n FROM articles WHERE publisher IS NOT NULL GROUP BY 1 ORDER BY n DESC");
   for(const r of pubs){ const o=document.createElement('option'); o.value=r.p; o.textContent=`${r.p} (${fmt(r.n)})`; $('pub').appendChild(o); }
+  if(HAS.has('title')){
+    const papers = await q("SELECT title t, count(*) n FROM articles WHERE title IS NOT NULL GROUP BY 1 ORDER BY n DESC");
+    for(const r of papers){ const o=document.createElement('option'); o.value=r.t; o.textContent=`${r.t} (${fmt(r.n)})`; $('paper').appendChild(o); }
+  } else {
+    $('paper-ctl').style.display='none';   // old parquet without newspaper title
+  }
   if(HAS.has('scope')){
     const scopes = await q("SELECT scope s, count(*) n FROM articles WHERE scope IS NOT NULL AND scope<>'' GROUP BY 1 ORDER BY n DESC");
     for(const r of scopes){ const o=document.createElement('option'); o.value=r.s; o.textContent=`${r.s} (${fmt(r.n)})`; $('scope').appendChild(o); }
@@ -406,6 +416,7 @@ function whereClause(opts={}){
   if(opts.month!==false) w.push(`strftime(date,'%Y-%m') BETWEEN '${S.selStart}' AND '${S.selEnd}'`);
   if(opts.thr!==false) w.push(`prob_crowd >= ${S.thr}`);
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
+  if(HAS.has('title') && S.paper) w.push(`title = '${esc(S.paper)}'`);
   if(HAS.has('scope') && S.scope) w.push(`scope = '${esc(S.scope)}'`);
   if(S.keyword) w.push(`matched_keyword = '${esc(S.keyword)}'`);
   else {
@@ -427,6 +438,7 @@ function whereClause(opts={}){
 function whereIssues(){
   const w=[];
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
+  if(ISCOLS.has('title') && S.paper) w.push(`title = '${esc(S.paper)}'`);
   if(ISCOLS.has('scope') && S.scope) w.push(`scope = '${esc(S.scope)}'`);
   if(S.city) w.push(`city = '${esc(S.city)}'`);
   return w.length ? 'WHERE '+w.join(' AND ') : '';
@@ -505,6 +517,7 @@ async function drawMapPub(){
 function whereMapIssues(){
   const w=[`month BETWEEN '${S.selStart}' AND '${S.selEnd}'`];
   if(S.publisher) w.push(`publisher = '${esc(S.publisher)}'`);
+  if(ISCOLS.has('title') && S.paper) w.push(`title = '${esc(S.paper)}'`);
   if(ISCOLS.has('scope') && S.scope) w.push(`scope = '${esc(S.scope)}'`);
   return 'WHERE '+w.join(' AND ');
 }
@@ -872,6 +885,7 @@ function wireControls(){
   $('thr').onchange=()=>{ S.page=0; refresh(); };
   $('kw').onchange=e=>{ S.keyword=e.target.value; S.page=0; refresh(); };
   $('pub').onchange=e=>{ S.publisher=e.target.value; S.page=0; refresh(); };
+  $('paper').onchange=e=>{ S.paper=e.target.value; S.page=0; refresh(); };
   $('scope').onchange=e=>{ S.scope=e.target.value; S.page=0; refresh(); };
   for(const [id,key] of [['t-high','high'],['t-med','med'],['t-low','low']]){
     const el=$(id);
