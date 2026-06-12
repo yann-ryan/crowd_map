@@ -530,13 +530,18 @@ function shareColor(s){
 async function drawTemporal(){
   let rows;
   if(HAS_ISSUES){
+    // Month spine = ALL months that have crowd articles OR issues, so months that
+    // exist only in the (scraped) articles — with no issue baseline — still appear.
     rows = await q(`
       WITH iss AS (SELECT month, SUM(issue_count) AS issues FROM issues ${whereIssues()} GROUP BY month),
-           crd AS (SELECT strftime(date,'%Y-%m') AS month, COUNT(*) AS crowd FROM articles ${whereClause({month:false})} GROUP BY 1)
-      SELECT iss.month AS month, COALESCE(crd.crowd,0) AS crowd, iss.issues AS denom
-      FROM iss LEFT JOIN crd USING(month) ORDER BY iss.month`);
+           crd AS (SELECT strftime(date,'%Y-%m') AS month, COUNT(*) AS crowd FROM articles ${whereClause({month:false})} GROUP BY 1),
+           months AS (SELECT month FROM iss UNION SELECT month FROM crd)
+      SELECT m.month AS month, COALESCE(crd.crowd,0) AS crowd, COALESCE(iss.issues,0) AS denom
+      FROM months m LEFT JOIN iss USING(month) LEFT JOIN crd USING(month)
+      WHERE m.month IS NOT NULL ORDER BY m.month`);
     TL.unit='crowd articles per 1,000 issues'; TL.denomLabel='issues'; TL.fmt=v=>v.toFixed(1);
-    for(const r of rows) r.rate = Number(r.denom) ? 1000*Number(r.crowd)/Number(r.denom) : 0;
+    // months with a baseline → per-1,000-issues rate; months with none (scraped-only) → fall back to the raw count
+    for(const r of rows) r.rate = Number(r.denom) ? 1000*Number(r.crowd)/Number(r.denom) : Number(r.crowd);
   } else {
     rows = await q(`
       SELECT strftime(date,'%Y-%m') AS month,
